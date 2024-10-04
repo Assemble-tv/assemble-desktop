@@ -1,0 +1,43 @@
+{
+  "name": "assemble-desktop",
+  "productName": "Assemble",
+  "version": "1.0.0",
+  "description": "Assemble Desktop App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder build --mac --win --publish never",
+    "deploy": "electron-builder build --mac --win --publish always"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/natewatkin21/assemble-desktop.git"
+  },
+  "author": "Nathan Watkin",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.4"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.6.4"
+  },
+  "build": {
+    "appId": "tv.assemble",
+    "productName": "Assemble",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "publish": [{
+      "provider": "github",
+      "owner": "natewatkin21",
+      "repo": "assemble-desktop"
+    }]
+  }
+}
