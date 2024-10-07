@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.23",
+  "version": "1.0.25",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
@@ -15,25 +15,22 @@
     "productName": "Assemble",
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"]
+      "target": ["dmg", "zip"],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "signIgnore": [
+        "node_modules"
+      ]
+    },
+    "afterSign": "scripts/notarize.js",
+    "dmg": {
+      "sign": false
     },
     "win": {
       "target": ["nsis"]
     },
-    "files": [
-      "**/*",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
-      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
-      "!**/node_modules/*.d.ts",
-      "!**/node_modules/.bin",
-      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
-      "!.editorconfig",
-      "!**/._*",
-      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
-      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
-      "!**/{appveyor.yml,.travis.yml,circle.yml}",
-      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
-    ],
     "publish": [{
       "provider": "github",
       "owner": "natewatkin21",
@@ -54,6 +51,7 @@
   },
   "devDependencies": {
     "electron": "^28.1.0",
-    "electron-builder": "^24.6.4"
+    "electron-builder": "^24.6.4",
+    "@electron/notarize": "^2.1.0"
   }
 }
