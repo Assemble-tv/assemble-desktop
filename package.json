@@ -1,13 +1,13 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.25",
+  "version": "1.0.27",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder build --mac --win --publish never",
+    "build": "electron-builder build --mac --win",
     "deploy": "electron-builder build --mac --win --publish always"
   },
   "build": {
@@ -15,33 +15,36 @@
     "productName": "Assemble",
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "signIgnore": [
-        "node_modules"
-      ]
+      "notarize": {
+        "teamId": "YY8VUW28TA"
+      }
     },
     "afterSign": "scripts/notarize.js",
     "dmg": {
       "sign": false
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
-    "publish": [{
-      "provider": "github",
-      "owner": "natewatkin21",
-      "repo": "assemble-desktop"
-    }]
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "natewatkin21",
+        "repo": "assemble-desktop"
+      }
+    ]
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/natewatkin21/assemble-desktop.git"
-  },
-  "author": "Your Name",
+  "author": "Nate Watkin",
   "license": "ISC",
   "dependencies": {
     "dotenv": "^16.3.1",
@@ -50,8 +53,8 @@
     "electron-updater": "^6.1.4"
   },
   "devDependencies": {
-    "electron": "^28.1.0",
-    "electron-builder": "^24.6.4",
+    "electron": "28.1.0",
+    "electron-builder": "^25.1.7",
     "@electron/notarize": "^2.1.0"
   }
 }
