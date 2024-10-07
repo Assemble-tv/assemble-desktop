@@ -1,11 +1,11 @@
-import { app, BrowserWindow, ipcMain, Menu, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import path from 'path';
 import { fileURLToPath } from 'url';
-import Store from 'electron-store';
 import dotenv from 'dotenv';
 import log from 'electron-log';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -23,108 +23,133 @@ function createWindow() {
     }
   });
 
-  // Load your website URL here
   win.loadURL('https://app.assemble.tv');
 
-  // Uncomment the line below if you want to open DevTools by default
-  // win.webContents.openDevTools();
+  win.webContents.on('did-finish-load', () => {
+    injectUpdateBanner(win);
+  });
 
   return win;
 }
 
+function injectUpdateBanner(win) {
+  const bannerHTML = fs.readFileSync(path.join(__dirname, 'updateBanner.html'), 'utf8');
+  win.webContents.executeJavaScript(`
+    const div = document.createElement('div');
+    div.innerHTML = ${JSON.stringify(bannerHTML)};
+    document.body.appendChild(div);
+  `);
+
+  const bannerJS = fs.readFileSync(path.join(__dirname, 'updateBanner.js'), 'utf8');
+  win.webContents.executeJavaScript(bannerJS);
+}
+
 function setupAutoUpdater(win) {
   autoUpdater.logger = log;
-  autoUpdater.logger.transports.file.level = "info";
+  autoUpdater.logger.transports.file.level = "debug";
   autoUpdater.autoDownload = false;
 
-  autoUpdater.on('checking-for-update', () => {
-    log.info('Checking for update...');
-    dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'Checking for Updates',
-      message: 'Checking for updates, please wait...',
-      buttons: ['OK']
-    });
-  });
-
   autoUpdater.on('update-available', (info) => {
-    log.info('Update available:', info);
-    dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'Update Available',
-      message: `Version ${info.version} is available. Would you like to download it now?`,
-      buttons: ['Yes', 'No']
-    }).then((result) => {
-      if (result.response === 0) { // 'Yes' button
-        autoUpdater.downloadUpdate();
-      }
-    });
-  });
-
-  autoUpdater.on('update-not-available', (info) => {
-    log.info('Update not available:', info);
-    dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'No Updates',
-      message: 'You are running the latest version.',
-      buttons: ['OK']
-    });
-  });
-
-  autoUpdater.on('error', (error) => {
-    log.error('Auto-updater error:', error);
-    dialog.showErrorBox('Error', `An error occurred while checking for updates: ${error.message}`);
+    win.webContents.send('update-available', info);
   });
 
   autoUpdater.on('download-progress', (progressObj) => {
-    let log_message = `Download speed: ${progressObj.bytesPerSecond}`;
-    log_message = `${log_message} - Downloaded ${progressObj.percent}%`;
-    log_message = `${log_message} (${progressObj.transferred}/${progressObj.total})`;
-    log.info(log_message);
-    win.webContents.send('download-progress', progressObj.percent);
+    win.webContents.send('download-progress', progressObj);
   });
 
   autoUpdater.on('update-downloaded', () => {
-    log.info('Update downloaded');
-    dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'Update Ready',
-      message: 'Update downloaded. The application will quit and restart to install the update.',
-      buttons: ['Restart Now', 'Later']
-    }).then((result) => {
-      if (result.response === 0) { // 'Restart Now' button
-        autoUpdater.quitAndInstall();
-      }
-    });
+    win.webContents.send('update-downloaded');
   });
+
+  autoUpdater.on('error', (error) => {
+    win.webContents.send('update-error', error.message);
+  });
+
+  // Check for updates every 30 seconds
+  setInterval(() => {
+    autoUpdater.checkForUpdates();
+  }, 30 * 1000);
 }
 
-function createMenu(win) {
+function createMenu() {
   const template = [
     {
       label: app.name,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        {
-          label: 'Check for Updates',
-          click: () => {
-            log.info('Manually checking for updates...');
-            dialog.showMessageBox(win, {
-              type: 'info',
-              title: 'Checking for Updates',
-              message: 'Checking for updates, please wait...',
-              buttons: ['OK']
-            });
-            autoUpdater.checkForUpdates().catch(err => {
-              log.error('Error checking for updates:', err);
-              dialog.showErrorBox('Error', `An error occurred while checking for updates: ${err.message}`);
-            });
-          }
-        },
-        // ... other menu items ...
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
       ]
     },
+    {
+      label: 'File',
+      submenu: [
+        { role: 'close' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Speech',
+          submenu: [
+            { role: 'startSpeaking' },
+            { role: 'stopSpeaking' }
+          ]
+        }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },
+        { type: 'separator' },
+        { role: 'window' }
+      ]
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Learn More',
+          click: async () => {
+            const { shell } = require('electron');
+            await shell.openExternal('https://electronjs.org');
+          }
+        }
+      ]
+    }
   ];
 
   const menu = Menu.buildFromTemplate(template);
@@ -134,29 +159,17 @@ function createMenu(win) {
 app.whenReady().then(() => {
   const mainWindow = createWindow();
   setupAutoUpdater(mainWindow);
-  createMenu(mainWindow);
+  createMenu();
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// IPC Handlers
-ipcMain.on('check-for-updates', () => {
-  log.info('Manually checking for updates...');
-  autoUpdater.checkForUpdates().catch(err => {
-    log.error('Error checking for updates:', err);
-  });
+ipcMain.on('start-download', () => {
+  autoUpdater.downloadUpdate();
 });
 
-ipcMain.on('download-update', () => {
-  log.info('Starting update download...');
-  autoUpdater.downloadUpdate().catch(err => {
-    log.error('Error downloading update:', err);
-  });
-});
-
-ipcMain.on('install-update', () => {
-  log.info('Installing update...');
+ipcMain.on('quit-and-install', () => {
   autoUpdater.quitAndInstall();
 });
