@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.27",
+  "version": "1.0.30",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
@@ -15,6 +15,7 @@
     "productName": "Assemble",
     "mac": {
       "category": "public.app-category.productivity",
+      "icon": "assets/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -23,6 +24,7 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": "Nathan Watkin (YY8VUW28TA)",
       "notarize": {
         "teamId": "YY8VUW28TA"
       }

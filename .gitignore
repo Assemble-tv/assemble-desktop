@@ -6,6 +6,7 @@ out/
 dist/
 dist_electron/
 build/
+assets/
 
 # Logs
 *.log
