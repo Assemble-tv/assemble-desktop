@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.31",
+  "version": "1.0.32",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
@@ -35,10 +35,19 @@
       "background": "assets/dmg_background.png",
       "iconSize": 80,
       "contents": [
-        { "x": 410, "y": 150, "type": "link", "path": "/Applications" },
-        { "x": 130, "y": 150, "type": "file" }
+        {
+          "x": 410,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 180,
+          "type": "file"
+        }
       ]
-  },
+    },
     "win": {
       "target": [
         "nsis"
@@ -57,12 +66,12 @@
   "dependencies": {
     "dotenv": "^16.3.1",
     "electron-log": "^4.4.8",
-    "electron-store": "^8.1.0",
+    "electron-store": "^8.2.0",
     "electron-updater": "^6.1.4"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.1.0",
     "electron": "28.1.0",
-    "electron-builder": "^25.1.7",
-    "@electron/notarize": "^2.1.0"
+    "electron-builder": "^25.1.7"
   }
 }
