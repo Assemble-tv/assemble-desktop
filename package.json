@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.32",
+  "version": "1.0.35",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
