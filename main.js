@@ -45,6 +45,7 @@ function createWindow() {
     ...bounds,
     minWidth: 800,
     minHeight: 600,
+    title: '',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -82,6 +83,10 @@ function createWindow() {
     if (!isErrorPage(url)) {
       store.set('lastVisitedUrl', url);
     }
+  });
+
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
   });
 
   // Handle error loading page

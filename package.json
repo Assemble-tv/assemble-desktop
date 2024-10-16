@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.35",
+  "version": "1.0.39",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
@@ -61,7 +61,7 @@
       }
     ]
   },
-  "author": "Nate Watkin",
+  "author": "Assemble",
   "license": "ISC",
   "dependencies": {
     "dotenv": "^16.3.1",
