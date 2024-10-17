@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.39",
+  "version": "1.0.40",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
@@ -37,16 +37,20 @@
       "contents": [
         {
           "x": 410,
-          "y": 180,
+          "y": 160,
           "type": "link",
           "path": "/Applications"
         },
         {
           "x": 130,
-          "y": 180,
+          "y": 160,
           "type": "file"
         }
-      ]
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     },
     "win": {
       "target": [
