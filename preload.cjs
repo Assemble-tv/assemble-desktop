@@ -8,4 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateError: (callback) => ipcRenderer.on('update-error', callback),
   startDownload: () => ipcRenderer.send('start-download'),
   quitAndInstall: () => ipcRenderer.send('quit-and-install'),
+  // Add these new navigation-related functions
+  navigateBack: () => ipcRenderer.send('nav-back'),
+  onShowNavigation: (callback) => ipcRenderer.on('show-navigation', callback),
+  onHideNavigation: (callback) => ipcRenderer.on('hide-navigation', callback),
 });

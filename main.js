@@ -18,8 +18,169 @@ const __dirname = path.dirname(__filename);
 // Initialize store
 const store = new Store();
 
+function isGoogleAuthPage(url) {
+  console.log('Checking URL:', url);  // Debug log
+  const isGoogle = url.includes('accounts.google.com') || 
+                  url.includes('google.com/signin') || 
+                  url.includes('google.com/oauth');
+  console.log('Is Google URL:', isGoogle);  // Debug log
+  return isGoogle;
+}
 
-function createWindow() {
+function isErrorPage(url) {
+  return url.includes('/error') || 
+         url.includes('/404') || 
+         url === 'about:blank' || 
+         isGoogleAuthPage(url);  // Treat Google auth pages like error pages for last visited URL
+}
+
+function ensureWindowWithinBounds(bounds) {
+  const { width: maxWidth, height: maxHeight } = screen.getPrimaryDisplay().workAreaSize;
+  const x = bounds.x < 0 ? 0 : (bounds.x + bounds.width > maxWidth ? maxWidth - bounds.width : bounds.x);
+  const y = bounds.y < 0 ? 0 : (bounds.y + bounds.height > maxHeight ? maxHeight - bounds.height : bounds.y);
+  return { x, y };
+}
+
+async function clearGoogleAuth() {
+  const session = mainWindow.webContents.session;
+  
+  // Clear cookies
+  const cookies = await session.cookies.get({ domain: '.google.com' });
+  for (const cookie of cookies) {
+      await session.cookies.remove(cookie.domain, cookie.name);
+  }
+  
+  // Clear storage data for Google domains
+  await session.clearStorageData({
+      origin: 'https://accounts.google.com',
+      storages: ['cookies', 'localstorage', 'caches', 'indexdb', 'serviceworkers']
+  });
+}
+
+function injectNavigationButton(win, shouldShow = false) {
+  try {
+      console.log('Injecting navigation button with shouldShow:', shouldShow);
+      win.webContents.executeJavaScript(`
+          // Create and inject Inter font
+          if (!document.getElementById('inter-font')) {
+              const fontLink = document.createElement('link');
+              fontLink.id = 'inter-font';
+              fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap';
+              fontLink.rel = 'stylesheet';
+              document.head.appendChild(fontLink);
+          }
+
+          // Remove existing button if it exists
+          const existingNav = document.getElementById('navigation-button');
+          if (existingNav) {
+              existingNav.remove();
+          }
+
+          // Create container for button and tooltip
+          const container = document.createElement('div');
+          container.id = 'navigation-button';
+          container.style.position = 'fixed';
+          container.style.top = '20px';
+          container.style.left = '20px';
+          container.style.zIndex = '2147483647';
+          container.style.display = ${shouldShow ? "'block'" : "'none'"};
+
+          // Create button
+          const button = document.createElement('button');
+          button.textContent = '←';
+          button.style.background = 'transparent';    // Changed from 'white' to 'transparent'
+          button.style.color = 'black';
+          button.style.border = 'none';
+          button.style.padding = '4px 8px';
+          button.style.borderRadius = '2px';
+          button.style.cursor = 'pointer';
+          button.style.fontSize = '24px';
+          button.style.fontWeight = '200';
+          button.style.fontFamily = '-apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto';
+          button.style.boxShadow = 'none';
+          button.style.transition = 'background-color 0.2s ease-in-out';
+
+          // Create tooltip elements
+          const tooltip = document.createElement('div');
+          tooltip.style.display = 'none';
+          tooltip.style.position = 'absolute';
+          tooltip.style.left = 'calc(100% + 8px)';
+          tooltip.style.top = 'calc(50% + 0px)';
+          tooltip.style.transform = 'translateY(-50%)';
+          tooltip.style.whiteSpace = 'nowrap';
+          tooltip.style.fontFamily = 'Inter, sans-serif';
+
+          const tooltipArrow = document.createElement('div');
+          tooltipArrow.style.position = 'absolute';
+          tooltipArrow.style.left = '-4px';
+          tooltipArrow.style.top = '50%';
+          tooltipArrow.style.transform = 'translateY(-50%)';
+          tooltipArrow.style.width = '0';
+          tooltipArrow.style.height = '0';
+          tooltipArrow.style.borderTop = '4px solid transparent';
+          tooltipArrow.style.borderRight = '4px solid black';
+          tooltipArrow.style.borderBottom = '4px solid transparent';
+
+          const tooltipText = document.createElement('div');
+          tooltipText.textContent = 'Back to Assemble';
+          tooltipText.style.background = 'black';
+          tooltipText.style.color = 'white';
+          tooltipText.style.padding = '3px 8px';
+          tooltipText.style.borderRadius = '4px';
+          tooltipText.style.fontSize = '12px';
+          tooltipText.style.fontWeight = '300';
+
+          tooltip.appendChild(tooltipArrow);
+          tooltip.appendChild(tooltipText);
+
+          // Add hover events
+          button.addEventListener('mouseover', () => {
+              button.style.backgroundColor = '#F4F3F4';
+              tooltip.style.display = 'block';
+          });
+
+          button.addEventListener('mouseout', () => {
+              button.style.backgroundColor = 'transparent';  // Changed from 'white' to 'transparent'
+              tooltip.style.display = 'none';
+          });
+
+          button.addEventListener('click', () => {
+              window.location.href = 'https://app.assemble.tv/#/login';
+          });
+
+          // Assemble the elements
+          container.appendChild(button);
+          container.appendChild(tooltip);
+          document.body.appendChild(container);
+      `);
+      
+      console.log('Navigation button injection complete');
+  } catch (error) {
+      console.error('Error injecting navigation button:', error);
+  }
+}
+
+function injectUI(win) {
+  try {
+      // Inject update banner
+      const bannerHTML = fs.readFileSync(path.join(__dirname, 'updateBanner.html'), 'utf8');
+      win.webContents.executeJavaScript(`
+          const updateDiv = document.createElement('div');
+          updateDiv.innerHTML = ${JSON.stringify(bannerHTML)};
+          document.body.appendChild(updateDiv);
+          console.log('Update banner injected');
+      `);
+      const bannerJS = fs.readFileSync(path.join(__dirname, 'updateBanner.js'), 'utf8');
+      win.webContents.executeJavaScript(bannerJS);
+
+      // Initial navigation button injection - hidden by default
+      injectNavigationButton(win, false);
+  } catch (error) {
+      console.error('Error injecting UI elements:', error);
+  }
+}
+
+async function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
@@ -61,7 +222,6 @@ function createWindow() {
 
   // Add this new event listener for opening links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Open all URLs in the user's default browser
     shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -70,13 +230,35 @@ function createWindow() {
   const lastVisitedUrl = store.get('lastVisitedUrl', 'https://app.assemble.tv');
   mainWindow.loadURL(lastVisitedUrl);
 
-  // Listen for URL changes
-  mainWindow.webContents.on('did-navigate', (event, url) => {
+  // Clear Google cookies on startup
+  await clearGoogleAuth();
+
+  // Navigation Event Handlers
+  mainWindow.webContents.on('did-navigate', async (event, url) => {  // Added async here
     console.log('Navigation occurred:', url);
-    if (!isErrorPage(url)) {
-      store.set('lastVisitedUrl', url);
+    const isGoogleUrl = isGoogleAuthPage(url);
+    
+    // Check if this is a logout (navigation to login page)
+    if (url.includes('app.assemble.tv/#/login')) {
+        console.log('Detected logout, clearing Google cookies...');
+        await clearGoogleAuth();
     }
-  });
+    
+    if (isGoogleUrl) {
+        console.log('On Google page, injecting navigation...');
+        injectNavigationButton(mainWindow, true);
+    } else {
+        console.log('Not on Google page, removing navigation...');
+        mainWindow.webContents.executeJavaScript(`
+            const nav = document.getElementById('navigation-button');
+            if (nav) nav.remove();
+        `);
+    }
+
+    if (!isErrorPage(url)) {
+        store.set('lastVisitedUrl', url);
+    }
+});
 
   mainWindow.webContents.on('did-navigate-in-page', (event, url) => {
     console.log('In-page navigation occurred:', url);
@@ -85,11 +267,6 @@ function createWindow() {
     }
   });
 
-  mainWindow.on('page-title-updated', (event) => {
-    event.preventDefault();
-  });
-
-  // Handle error loading page
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.log(`Failed to load: ${validatedURL}`);
     console.log(`Error: ${errorDescription}`);
@@ -107,7 +284,11 @@ function createWindow() {
     }
   });
 
-  // Save window size and position when closing the window
+  // Window Event Handlers
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
+  });
+
   mainWindow.on('close', () => {
     if (!mainWindow.isMinimized() && !mainWindow.isMaximized()) {
       store.set('windowState', {
@@ -120,43 +301,8 @@ function createWindow() {
     mainWindow = null;
   });
 
-  injectUpdateBanner(mainWindow);
+  injectUI(mainWindow);
   return mainWindow;
-}
-
-// Helper function to ensure window is within screen bounds
-function ensureWindowWithinBounds(bounds) {
-  const { width: maxWidth, height: maxHeight } = screen.getPrimaryDisplay().workAreaSize;
-  const x = bounds.x < 0 ? 0 : (bounds.x + bounds.width > maxWidth ? maxWidth - bounds.width : bounds.x);
-  const y = bounds.y < 0 ? 0 : (bounds.y + bounds.height > maxHeight ? maxHeight - bounds.height : bounds.y);
-  return { x, y };
-}
-
-function isErrorPage(url) {
-  return url.includes('/error') || url.includes('/404') || url === 'about:blank';
-}
-
-function handleInvalidSavedUrl() {
-  console.log('Saved URL is invalid. Redirecting to home page.');
-  const homeUrl = 'https://app.assemble.tv';
-  mainWindow.loadURL(homeUrl);
-  store.set('lastVisitedUrl', homeUrl);
-}
-
-function injectUpdateBanner(win) {
-  try {
-    const bannerHTML = fs.readFileSync(path.join(__dirname, 'updateBanner.html'), 'utf8');
-    win.webContents.executeJavaScript(`
-      const div = document.createElement('div');
-      div.innerHTML = ${JSON.stringify(bannerHTML)};
-      document.body.appendChild(div);
-    `);
-
-    const bannerJS = fs.readFileSync(path.join(__dirname, 'updateBanner.js'), 'utf8');
-    win.webContents.executeJavaScript(bannerJS);
-  } catch (error) {
-    console.error('Error injecting update banner:', error);
-  }
 }
 
 function setupAutoUpdater(win) {
@@ -271,6 +417,7 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+// App Event Handlers
 app.whenReady().then(() => {
   createWindow();
   setupAutoUpdater(mainWindow);
@@ -279,11 +426,29 @@ app.whenReady().then(() => {
   console.log('Last visited URL from store:', store.get('lastVisitedUrl', 'https://app.assemble.tv'));
 });
 
+// IPC Event Handlers
+ipcMain.on('nav-back', () => {
+  if (mainWindow.webContents.canGoBack()) {
+    mainWindow.webContents.goBack();
+  } else {
+    mainWindow.loadURL('https://app.assemble.tv');
+  }
+});
+
 ipcMain.on('update-last-visited-url', (event, url) => {
   console.log('Updating last visited URL:', url);
   store.set('lastVisitedUrl', url);
 });
 
+ipcMain.on('start-download', () => {
+  autoUpdater.downloadUpdate();
+});
+
+ipcMain.on('quit-and-install', () => {
+  autoUpdater.quitAndInstall();
+});
+
+// App lifecycle handlers
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -296,14 +461,7 @@ app.on('activate', () => {
   }
 });
 
-ipcMain.on('start-download', () => {
-  autoUpdater.downloadUpdate();
-});
-
-ipcMain.on('quit-and-install', () => {
-  autoUpdater.quitAndInstall();
-});
-
+// Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
