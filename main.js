@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, screen, shell, Notification, systemPreferences } from 'electron';
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import path from 'path';
@@ -7,6 +7,15 @@ import dotenv from 'dotenv';
 import log from 'electron-log';
 import fs from 'fs';
 import Store from 'electron-store';
+import { exec } from 'child_process';
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled Rejection:', error);
+});
 
 dotenv.config();
 
@@ -16,7 +25,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize store
-const store = new Store();
+const store = new Store({
+  defaults: {
+    notificationsEnabled: false
+  }
+});
 
 function isGoogleAuthPage(url) {
   console.log('Checking URL:', url);  // Debug log
@@ -178,6 +191,270 @@ function injectUI(win) {
   } catch (error) {
       console.error('Error injecting UI elements:', error);
   }
+}
+
+function playNotificationSound() {
+  mainWindow.webContents.executeJavaScript(`console.log('[Sound Debug]: Starting playNotificationSound')`);
+  
+  try {
+    // Use process.resourcesPath instead of __dirname
+    const soundPath = path.join(process.resourcesPath, 'assets', 'sounds', 'notification.mp3');
+    mainWindow.webContents.executeJavaScript(`console.log('[Sound Debug]: Sound path: ${soundPath}')`);
+    
+    if (fs.existsSync(soundPath)) {
+      mainWindow.webContents.executeJavaScript(`console.log('[Sound Debug]: Sound file found')`);
+      
+      if (process.platform === 'darwin') {
+        mainWindow.webContents.executeJavaScript(`console.log('[Sound Debug]: Attempting to play sound')`);
+        
+        exec(`afplay "${soundPath}"`, (error, stdout, stderr) => {
+          if (error) {
+            mainWindow.webContents.executeJavaScript(`console.log('[Sound Error]: ${error.message}')`);
+          } else {
+            mainWindow.webContents.executeJavaScript(`console.log('[Sound Debug]: Sound played successfully')`);
+          }
+        });
+      }
+    } else {
+      mainWindow.webContents.executeJavaScript(`console.log('[Sound Error]: Sound file not found at ${soundPath}')`);
+      // List contents to debug
+      const assetsPath = path.join(process.resourcesPath, 'assets');
+      if (fs.existsSync(assetsPath)) {
+        const contents = fs.readdirSync(assetsPath);
+        mainWindow.webContents.executeJavaScript(`console.log('[Sound Debug]: Assets contents: ${contents.join(", ")}')`);
+      }
+    }
+  } catch (error) {
+    mainWindow.webContents.executeJavaScript(`console.log('[Sound Error]: ${error.message}')`);
+  }
+}
+
+// Check notification permission on macOS
+async function checkNotificationPermission() {
+  // If Notification is supported, assume we can use it
+  // since the system will handle permission checks
+  return Notification.isSupported();
+}
+
+// Request notification permission
+async function requestNotificationPermission() {
+  return Notification.isSupported();
+}
+
+async function forceNotificationRegistration() {
+  if (process.platform === 'darwin') {
+    try {
+      // Create and show a test notification
+      const testNotification = new Notification({
+        title: 'Registration Test',
+        body: 'Registering with notification system'
+      });
+      testNotification.show();
+      return true;
+    } catch (error) {
+      console.error('Error forcing notification registration:', error);
+      return false;
+    }
+  }
+  return true;
+}
+
+// Create notification
+async function createNotification(type, data) {
+  try {
+    // Step 1: Check app's internal notification setting only
+    const notificationsEnabled = store.get('notificationsEnabled');
+    console.log('App notifications enabled:', notificationsEnabled);
+
+    if (!notificationsEnabled) {
+      console.log('Notifications are disabled in app settings');
+      return { success: false, reason: 'app_disabled' };
+    }
+    
+    let title = '';
+    let body = '';
+    const icon = path.join(__dirname, 'assets/icons/icon.png');
+
+    switch (type) {
+      case 'new-comment':
+        if (!data.author || !data.itemTitle) {
+          return { success: false, reason: 'invalid_comment_data' };
+        }
+        title = 'New Comment';
+        body = `${data.author} commented on ${data.itemTitle}`;
+        break;
+
+      case 'mention':
+        if (!data.author || !data.itemTitle) {
+          return { success: false, reason: 'invalid_mention_data' };
+        }
+        title = 'You were mentioned';
+        body = `${data.author} mentioned you in ${data.itemTitle}`;
+        break;
+
+      case 'reply':
+        if (!data.author || !data.itemTitle) {
+          return { success: false, reason: 'invalid_reply_data' };
+        }
+        title = 'New Reply';
+        body = `${data.author} replied to your comment on ${data.itemTitle}`;
+        break;
+
+      case 'task-assigned':
+        if (!data.author || !data.taskTitle) {
+          return { success: false, reason: 'invalid_task_data' };
+        }
+        title = 'Task Assigned';
+        body = `${data.author} assigned you to "${data.taskTitle}"`;
+        break;
+
+      case 'task-status':
+        if (!data.taskTitle || !data.newStatus) {
+          return { success: false, reason: 'invalid_status_data' };
+        }
+        title = 'Task Status Changed';
+        body = `"${data.taskTitle}" status changed to ${data.newStatus}`;
+        break;
+
+      default:
+        return { success: false, reason: 'invalid_notification_type' };
+    }
+
+    // Validate URL if provided
+    if (data.url && !data.url.startsWith('https://app.assemble.tv')) {
+      return { success: false, reason: 'invalid_url' };
+    }
+
+    // Create and show notification with sound
+    const notification = new Notification({
+      title,
+      body,
+      icon,
+      silent: true,
+      timeoutType: 'default'
+    });
+    
+    // Play custom sound before showing notification
+    mainWindow.webContents.executeJavaScript(`console.log('[Debug]: Before playing sound')`);
+    playNotificationSound();
+    
+    mainWindow.webContents.executeJavaScript(`console.log('[Debug]: After playing sound')`);
+    notification.show();
+
+    // Setup click handler
+    notification.on('click', () => {
+      try {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.focus();
+          
+          if (data.url) {
+            mainWindow.loadURL(data.url);
+          }
+        }
+      } catch (error) {
+        console.error('Error handling notification click:', error);
+      }
+    });
+
+    // Return success
+    return { 
+      success: true, 
+      type,
+      title,
+      body
+    };
+
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    return { 
+      success: false, 
+      reason: 'error',
+      error: error.message,
+      stack: error.stack
+    };
+  }
+}
+
+// Add these test functions to main.js
+async function runNotificationTests() {
+  console.log('🧪 Starting notification system tests...');
+  
+  // Test 1: Check if notifications are supported
+  console.log('Test 1: Checking notification support...');
+  const isSupported = Notification.isSupported();
+  console.log(`✓ Notifications ${isSupported ? 'are' : 'are not'} supported`);
+
+  // Test 2: Check system permission
+  console.log('Test 2: Checking system permission...');
+  const permission = await checkNotificationPermission();
+  console.log(`✓ Notification permission is: ${permission ? 'granted' : 'denied'}`);
+
+  // Test 3: Check stored settings
+  console.log('Test 3: Checking notification settings...');
+  const enabled = store.get('notificationsEnabled');
+  console.log(`✓ Notifications are ${enabled ? 'enabled' : 'disabled'} in app settings`);
+
+  // Test 4: Test notification creation
+  if (isSupported && permission && enabled) {
+    console.log('Test 4: Testing all notification types...');
+    const testCases = [
+      {
+        type: 'new-comment',
+        data: {
+          author: 'Test User',
+          itemTitle: 'Test Document',
+          url: 'https://app.assemble.tv/test/comment'
+        }
+      },
+      {
+        type: 'mention',
+        data: {
+          author: 'Test Mentioner',
+          itemTitle: 'Test Mention Document',
+          url: 'https://app.assemble.tv/test/mention'
+        }
+      },
+      {
+        type: 'reply',
+        data: {
+          author: 'Test Replier',
+          itemTitle: 'Test Reply Document',
+          url: 'https://app.assemble.tv/test/reply'
+        }
+      },
+      {
+        type: 'task-assigned',
+        data: {
+          author: 'Test Assigner',
+          taskTitle: 'Test Task',
+          url: 'https://app.assemble.tv/test/task'
+        }
+      },
+      {
+        type: 'task-status',
+        data: {
+          taskTitle: 'Test Status Task',
+          newStatus: 'In Progress',
+          url: 'https://app.assemble.tv/test/status'
+        }
+      }
+    ];
+
+    // Send test notifications with a delay between each
+    for (const testCase of testCases) {
+      await createNotification(testCase.type, testCase.data);
+      console.log(`✓ Sent test notification: ${testCase.type}`);
+      // Wait 2 seconds between notifications
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  } else {
+    console.log('❌ Cannot test notifications - either not supported, no permission, or disabled in settings');
+  }
+
+  console.log('🏁 Notification tests completed');
 }
 
 async function createWindow() {
@@ -418,12 +695,24 @@ function createMenu() {
 }
 
 // App Event Handlers
-app.whenReady().then(() => {
-  createWindow();
-  setupAutoUpdater(mainWindow);
-  createMenu();
+app.whenReady().then(async () => {
+  try {
+    // Now screen module will be available
+    await createWindow();
+    
+    setupAutoUpdater(mainWindow);
+    createMenu();
 
-  console.log('Last visited URL from store:', store.get('lastVisitedUrl', 'https://app.assemble.tv'));
+    console.log('Last visited URL from store:', store.get('lastVisitedUrl', 'https://app.assemble.tv'));
+
+    if (process.platform === 'darwin') {
+      forceNotificationRegistration().then(result => {
+        console.log('Initial notification registration result:', result);
+      });
+    }
+  } catch (error) {
+    console.error('Error during app startup:', error);
+  }
 });
 
 // IPC Event Handlers
@@ -458,6 +747,141 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
+  }
+});
+
+ipcMain.handle('get-notification-permission', async () => {
+  return await checkNotificationPermission();
+});
+
+ipcMain.handle('request-notification-permission', async () => {
+  return await requestNotificationPermission();
+});
+
+ipcMain.handle('show-notification', async (event, { type, data }) => {
+  return await createNotification(type, data);
+});
+
+ipcMain.handle('get-notifications-enabled', () => {
+  const enabled = store.get('notificationsEnabled');
+  console.log('Getting notifications enabled state:', enabled);
+  return enabled;
+});
+
+ipcMain.handle('set-notifications-enabled', async (event, enabled) => {
+  console.log('Setting notifications enabled:', enabled);
+  
+  if (enabled) {
+    // If enabling notifications, check/request system permission
+    const hasPermission = await checkNotificationPermission();
+    if (!hasPermission) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        console.log('System permission not granted');
+      }
+    }
+  }
+  
+  store.set('notificationsEnabled', enabled);
+  return enabled;
+});
+
+ipcMain.handle('check-notification-status', async () => {
+  try {
+    const appEnabled = store.get('notificationsEnabled');
+    const systemEnabled = await checkNotificationPermission();
+    
+    console.log('Notification status check:', {
+      appEnabled,
+      systemEnabled
+    });
+    
+    return {
+      appEnabled,
+      systemEnabled,
+      effectivelyEnabled: appEnabled && systemEnabled
+    };
+  } catch (error) {
+    console.error('Error checking notification status:', error);
+    return {
+      appEnabled: false,
+      systemEnabled: false,
+      effectivelyEnabled: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('test-notification', async (event, type) => {
+  const testData = {
+    'new-comment': {
+      author: 'Test User',
+      itemTitle: 'Test Document',
+      url: 'https://app.assemble.tv/test/comment'
+    },
+    'mention': {
+      author: 'Test Mentioner',
+      itemTitle: 'Test Mention Document',
+      url: 'https://app.assemble.tv/test/mention'
+    },
+    'reply': {
+      author: 'Test Replier',
+      itemTitle: 'Test Reply Document',
+      url: 'https://app.assemble.tv/test/reply'
+    },
+    'task-assigned': {
+      author: 'Test Assigner',
+      taskTitle: 'Test Task',
+      url: 'https://app.assemble.tv/test/task'
+    },
+    'task-status': {
+      taskTitle: 'Test Status Task',
+      newStatus: 'In Progress',
+      url: 'https://app.assemble.tv/test/status'
+    }
+  };
+
+  if (testData[type]) {
+    // Use createNotification instead of creating notification directly
+    return await createNotification(type, testData[type]);
+  }
+  return false;
+});
+
+ipcMain.handle('test-notification-setting', () => {
+  const storeData = store.store;
+  console.log('Full store data:', storeData);
+  const enabled = store.get('notificationsEnabled');
+  console.log('Current notification setting:', enabled);
+  return { enabled, storeData };
+});
+
+function getActionText(type) {
+  switch (type) {
+    case 'new-comment':
+      return 'commented on';
+    case 'mention':
+      return 'mentioned you in';
+    case 'reply':
+      return 'replied to your comment on';
+    case 'task-assigned':
+      return 'assigned you to';
+    default:
+      return '';
+  }
+}
+
+ipcMain.handle('force-notification-registration', async () => {
+  return await forceNotificationRegistration();
+});
+
+ipcMain.on('debug-log', (event, message) => {
+  if (mainWindow) {
+    mainWindow.webContents.executeJavaScript(`
+      console.log('[Debug]:', ${JSON.stringify(message)})
+    `).catch(err => {
+      console.error('Error logging to renderer:', err);
+    });
   }
 });
 

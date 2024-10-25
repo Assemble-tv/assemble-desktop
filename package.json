@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.60",
+  "version": "1.0.62",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
@@ -13,6 +13,12 @@
   "build": {
     "appId": "tv.assemble",
     "productName": "Assemble",
+    "extraResources": [
+      {
+        "from": "assets/",
+        "to": "assets"
+      }
+      ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "assets/icons/icon.icns",
