@@ -260,85 +260,34 @@ async function forceNotificationRegistration() {
 }
 
 // Create notification
-async function createNotification(type, data) {
+async function createNotification(notificationData) {
   try {
+    const { creatorName, message, url, icon, info, target, color, date, dateFormat } = notificationData;
+
     // Step 1: Check app's internal notification setting only
     const notificationsEnabled = store.get('notificationsEnabled');
     console.log('App notifications enabled:', notificationsEnabled);
-
     if (!notificationsEnabled) {
       console.log('Notifications are disabled in app settings');
       return { success: false, reason: 'app_disabled' };
     }
-    
-    let title = '';
-    let body = '';
-    const icon = path.join(__dirname, 'assets/icons/icon.png');
 
-    switch (type) {
-      case 'new-comment':
-        if (!data.author || !data.itemTitle) {
-          return { success: false, reason: 'invalid_comment_data' };
-        }
-        title = 'New Comment';
-        body = `${data.author} commented on ${data.itemTitle}`;
-        break;
+    // Create notification options
+    const options = {
+      title: `${creatorName} ${message}`,
+      body: `${target}${info ? ` - ${info}` : ''}`,
+      silent: true,
+      timeoutType: 'default'
+    };
 
-      case 'mention':
-        if (!data.author || !data.itemTitle) {
-          return { success: false, reason: 'invalid_mention_data' };
-        }
-        title = 'You were mentioned';
-        body = `${data.author} mentioned you in ${data.itemTitle}`;
-        break;
-
-      case 'reply':
-        if (!data.author || !data.itemTitle) {
-          return { success: false, reason: 'invalid_reply_data' };
-        }
-        title = 'New Reply';
-        body = `${data.author} replied to your comment on ${data.itemTitle}`;
-        break;
-
-      case 'task-assigned':
-        if (!data.author || !data.taskTitle) {
-          return { success: false, reason: 'invalid_task_data' };
-        }
-        title = 'Task Assigned';
-        body = `${data.author} assigned you to "${data.taskTitle}"`;
-        break;
-
-      case 'task-status':
-        if (!data.taskTitle || !data.newStatus) {
-          return { success: false, reason: 'invalid_status_data' };
-        }
-        title = 'Task Status Changed';
-        body = `"${data.taskTitle}" status changed to ${data.newStatus}`;
-        break;
-
-      default:
-        return { success: false, reason: 'invalid_notification_type' };
-    }
-
-    // Validate URL if provided
-    if (data.url && !data.url.startsWith('https://app.assemble.tv')) {
-      return { success: false, reason: 'invalid_url' };
+    // Add icon if provided
+    if (icon) {
+      options.icon = icon;
     }
 
     // Create and show notification with sound
-    const notification = new Notification({
-      title,
-      body,
-      icon,
-      silent: true,
-      timeoutType: 'default'
-    });
-    
-    // Play custom sound before showing notification
-    mainWindow.webContents.executeJavaScript(`console.log('[Debug]: Before playing sound')`);
+    const notification = new Notification(options);
     playNotificationSound();
-    
-    mainWindow.webContents.executeJavaScript(`console.log('[Debug]: After playing sound')`);
     notification.show();
 
     // Setup click handler
@@ -349,9 +298,8 @@ async function createNotification(type, data) {
             mainWindow.restore();
           }
           mainWindow.focus();
-          
-          if (data.url) {
-            mainWindow.loadURL(data.url);
+          if (url) {
+            mainWindow.loadURL(url);
           }
         }
       } catch (error) {
@@ -360,101 +308,11 @@ async function createNotification(type, data) {
     });
 
     // Return success
-    return { 
-      success: true, 
-      type,
-      title,
-      body
-    };
-
+    return { success: true, ...notificationData };
   } catch (error) {
     console.error('Error creating notification:', error);
-    return { 
-      success: false, 
-      reason: 'error',
-      error: error.message,
-      stack: error.stack
-    };
+    return { success: false, reason: 'error', error: error.message, stack: error.stack };
   }
-}
-
-// Add these test functions to main.js
-async function runNotificationTests() {
-  console.log('🧪 Starting notification system tests...');
-  
-  // Test 1: Check if notifications are supported
-  console.log('Test 1: Checking notification support...');
-  const isSupported = Notification.isSupported();
-  console.log(`✓ Notifications ${isSupported ? 'are' : 'are not'} supported`);
-
-  // Test 2: Check system permission
-  console.log('Test 2: Checking system permission...');
-  const permission = await checkNotificationPermission();
-  console.log(`✓ Notification permission is: ${permission ? 'granted' : 'denied'}`);
-
-  // Test 3: Check stored settings
-  console.log('Test 3: Checking notification settings...');
-  const enabled = store.get('notificationsEnabled');
-  console.log(`✓ Notifications are ${enabled ? 'enabled' : 'disabled'} in app settings`);
-
-  // Test 4: Test notification creation
-  if (isSupported && permission && enabled) {
-    console.log('Test 4: Testing all notification types...');
-    const testCases = [
-      {
-        type: 'new-comment',
-        data: {
-          author: 'Test User',
-          itemTitle: 'Test Document',
-          url: 'https://app.assemble.tv/test/comment'
-        }
-      },
-      {
-        type: 'mention',
-        data: {
-          author: 'Test Mentioner',
-          itemTitle: 'Test Mention Document',
-          url: 'https://app.assemble.tv/test/mention'
-        }
-      },
-      {
-        type: 'reply',
-        data: {
-          author: 'Test Replier',
-          itemTitle: 'Test Reply Document',
-          url: 'https://app.assemble.tv/test/reply'
-        }
-      },
-      {
-        type: 'task-assigned',
-        data: {
-          author: 'Test Assigner',
-          taskTitle: 'Test Task',
-          url: 'https://app.assemble.tv/test/task'
-        }
-      },
-      {
-        type: 'task-status',
-        data: {
-          taskTitle: 'Test Status Task',
-          newStatus: 'In Progress',
-          url: 'https://app.assemble.tv/test/status'
-        }
-      }
-    ];
-
-    // Send test notifications with a delay between each
-    for (const testCase of testCases) {
-      await createNotification(testCase.type, testCase.data);
-      console.log(`✓ Sent test notification: ${testCase.type}`);
-      // Wait 2 seconds between notifications
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-  } else {
-    console.log('❌ Cannot test notifications - either not supported, no permission, or disabled in settings');
-  }
-
-  console.log('🏁 Notification tests completed');
 }
 
 async function createWindow() {
@@ -814,36 +672,21 @@ ipcMain.handle('check-notification-status', async () => {
 
 ipcMain.handle('test-notification', async (event, type) => {
   const testData = {
-    'new-comment': {
-      author: 'Test User',
-      itemTitle: 'Test Document',
-      url: 'https://app.assemble.tv/test/comment'
-    },
-    'mention': {
-      author: 'Test Mentioner',
-      itemTitle: 'Test Mention Document',
-      url: 'https://app.assemble.tv/test/mention'
-    },
-    'reply': {
-      author: 'Test Replier',
-      itemTitle: 'Test Reply Document',
-      url: 'https://app.assemble.tv/test/reply'
-    },
-    'task-assigned': {
-      author: 'Test Assigner',
-      taskTitle: 'Test Task',
-      url: 'https://app.assemble.tv/test/task'
-    },
-    'task-status': {
-      taskTitle: 'Test Status Task',
-      newStatus: 'In Progress',
-      url: 'https://app.assemble.tv/test/status'
+    'dummy': {
+      creatorName: 'John Doe',
+      message: 'created a new document',
+      url: 'https://app.assemble.tv/documents/123',
+      icon: path.join(__dirname, 'assets/icons/document.png'),
+      info: 'Project X',
+      target: 'Design Document',
+      color: '#FF0000',
+      date: new Date(),
+      dateFormat: 'MM/DD/YYYY'
     }
   };
 
   if (testData[type]) {
-    // Use createNotification instead of creating notification directly
-    return await createNotification(type, testData[type]);
+    return await createNotification(testData[type]);
   }
   return false;
 });
