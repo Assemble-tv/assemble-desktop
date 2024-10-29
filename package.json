@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.63",
+  "version": "1.0.64",
   "description": "Assemble Desktop App",
   "main": "main.js",
   "type": "module",
@@ -38,18 +38,18 @@
     "afterSign": "scripts/notarize.js",
     "dmg": {
       "icon": "assets/icons/dmg_installer.icns",
-      "background": "assets/dmg_background.png",
+      "background": "assets/dmg_background.svg",
       "iconSize": 80,
       "contents": [
         {
           "x": 410,
-          "y": 160,
+          "y": 190,
           "type": "link",
           "path": "/Applications"
         },
         {
           "x": 130,
-          "y": 160,
+          "y": 190,
           "type": "file"
         }
       ],
