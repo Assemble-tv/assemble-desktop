@@ -1,28 +1,41 @@
-import { app, BrowserWindow, ipcMain, Menu, screen, shell, Notification, systemPreferences } from 'electron';
-import pkg from 'electron-updater';
-const { autoUpdater } = pkg;
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-import log from 'electron-log';
-import fs from 'fs';
-import Store from 'electron-store';
-import { exec } from 'child_process';
+const { app, BrowserWindow, ipcMain, Menu, screen, shell, Notification, systemPreferences } = require('electron');
+const { autoUpdater } = require('electron-updater');
+const path = require('path');
+const dotenv = require('dotenv');
+const log = require('electron-log');
+const fs = require('fs');
+const Store = require('electron-store');
+const { exec } = require('child_process');
 
+// Force immediate logging to verify it's working
+log.transports.file.level = 'debug';
+log.transports.console.level = 'debug';
+log.info('=== APPLICATION STARTING ===');
+log.info('Time:', new Date().toISOString());
+log.info('Platform:', process.platform);
+log.info('Electron version:', process.versions.electron);
+log.info('Node version:', process.version);
+
+// Try to force a file write
+try {
+  const logPath = log.transports.file.getFile().path;
+  log.info('Log file location:', logPath);
+} catch (error) {
+  console.error('Error getting log path:', error);
+}
+
+// Catch unhandled errors
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+  log.error('Uncaught Exception:', error);
 });
 
 process.on('unhandledRejection', (error) => {
-  console.error('Unhandled Rejection:', error);
+  log.error('Unhandled Rejection:', error);
 });
 
 dotenv.config();
 
 let mainWindow = null;
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Initialize store
 const store = new Store({
@@ -540,7 +553,6 @@ function createMenu() {
         {
           label: 'Learn More',
           click: async () => {
-            const { shell } = require('electron');
             await shell.openExternal('https://electronjs.org');
           }
         }
@@ -552,24 +564,46 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-// App Event Handlers
+// Configure logging
+log.transports.file.level = 'debug';
+log.transports.console.level = 'debug';
+
+// Catch unhandled errors
+process.on('uncaughtException', (error) => {
+  log.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  log.error('Unhandled Rejection:', error);
+});
+
 app.whenReady().then(async () => {
   try {
+    log.info('App starting...');
+    
     // Now screen module will be available
     await createWindow();
+    log.info('Window created successfully');
     
     setupAutoUpdater(mainWindow);
+    log.info('Auto updater setup complete');
+    
     createMenu();
+    log.info('Menu created');
 
-    console.log('Last visited URL from store:', store.get('lastVisitedUrl', 'https://app.assemble.tv'));
+    const lastVisitedUrl = store.get('lastVisitedUrl', 'https://app.assemble.tv');
+    log.info('Last visited URL from store:', lastVisitedUrl);
 
     if (process.platform === 'darwin') {
       forceNotificationRegistration().then(result => {
-        console.log('Initial notification registration result:', result);
+        log.info('Initial notification registration result:', result);
+      }).catch(error => {
+        log.error('Error during notification registration:', error);
       });
     }
   } catch (error) {
-    console.error('Error during app startup:', error);
+    log.error('Fatal error during app startup:', error);
+    app.quit();  // Added this to ensure app quits on fatal error
   }
 });
 

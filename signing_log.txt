@@ -1,0 +1,1 @@
+./dist/mac/Assemble.app: signed app bundle with Mach-O thin (x86_64) [tv.assemble]

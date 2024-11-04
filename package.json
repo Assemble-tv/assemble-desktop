@@ -1,24 +1,30 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.64",
+  "version": "1.0.67",
   "description": "Assemble Desktop App",
-  "main": "main.js",
-  "type": "module",
+  "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder build --mac --win",
-    "deploy": "electron-builder build --mac --win --publish always"
+    "build": "electron-builder build --mac",
+    "deploy": "electron-builder build --mac --publish always"
   },
   "build": {
     "appId": "tv.assemble",
     "productName": "Assemble",
+    "publish": {
+      "provider": "github",
+      "owner": "natewatkin21",
+      "repo": "assemble-desktop",
+      "releaseType": "release"
+    },
+    "generateUpdatesFilesForAllChannels": true,
     "extraResources": [
       {
         "from": "assets/",
         "to": "assets"
       }
-      ],
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "assets/icons/icon.icns",
@@ -30,12 +36,11 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "identity": "Nathan Watkin (YY8VUW28TA)",
       "notarize": {
         "teamId": "YY8VUW28TA"
       }
     },
-    "afterSign": "scripts/notarize.js",
+    "afterSign": "scripts/notarize.cjs",
     "dmg": {
       "icon": "assets/icons/dmg_installer.icns",
       "background": "assets/dmg_background.svg",
@@ -57,19 +62,7 @@
         "width": 540,
         "height": 380
       }
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "natewatkin21",
-        "repo": "assemble-desktop"
-      }
-    ]
+    }
   },
   "author": "Assemble",
   "license": "ISC",
@@ -81,7 +74,7 @@
   },
   "devDependencies": {
     "@electron/notarize": "^2.1.0",
-    "electron": "28.1.0",
+    "electron": "25.9.0",
     "electron-builder": "^25.1.7"
   }
 }
