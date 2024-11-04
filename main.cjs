@@ -6,6 +6,7 @@ const log = require('electron-log');
 const fs = require('fs');
 const Store = require('electron-store');
 const { exec } = require('child_process');
+const { clipboard, MenuItem } = require('electron');
 
 // Force immediate logging to verify it's working
 log.transports.file.level = 'debug';
@@ -350,6 +351,7 @@ async function createWindow() {
     }
   });
 
+  // Create the window
   mainWindow = new BrowserWindow({
     ...bounds,
     minWidth: 800,
@@ -358,7 +360,8 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.cjs')
+      preload: path.join(__dirname, 'preload.cjs'),
+      spellcheck: true
     }
   });
 
@@ -368,7 +371,64 @@ async function createWindow() {
     mainWindow.setPosition(x, y);
   }
 
-  // Add this new event listener for opening links in default browser
+  // Set up context menu
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const menuTemplate = [];
+  
+    // Add spelling suggestions at the top if available
+    if (params.dictionarySuggestions?.length > 0 && params.isEditable) {
+      params.dictionarySuggestions.forEach(suggestion => {
+        menuTemplate.push({
+          label: suggestion,
+          click: () => mainWindow.webContents.replaceMisspelling(suggestion)
+        });
+      });
+      menuTemplate.push({ type: 'separator' });
+    }
+  
+    // Add the rest of the menu items
+    menuTemplate.push(
+      {
+        label: 'Back',
+        enabled: mainWindow.webContents.canGoBack(),
+        click: () => mainWindow.webContents.goBack()
+      },
+      {
+        label: 'Forward',
+        enabled: mainWindow.webContents.canGoForward(),
+        click: () => mainWindow.webContents.goForward()
+      },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { type: 'separator' },
+      { role: 'reload' },
+      { role: 'toggleDevTools' },
+      { role: 'toggleSpellChecker' }
+    );
+  
+    // Add link-specific items if clicked on a link
+    if (params.linkURL) {
+      menuTemplate.push({ type: 'separator' });
+      menuTemplate.push({
+        label: 'Open Link in Browser',
+        click: () => shell.openExternal(params.linkURL)
+      });
+      menuTemplate.push({
+        label: 'Copy Link',
+        click: () => clipboard.writeText(params.linkURL)
+      });
+    }
+  
+    const menu = Menu.buildFromTemplate(menuTemplate);
+    menu.popup();
+  });
+  
+  // Enable spellchecker
+  mainWindow.webContents.session.setSpellCheckerLanguages(['en-US']);
+
+  // Add event listener for opening links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
@@ -382,7 +442,7 @@ async function createWindow() {
   await clearGoogleAuth();
 
   // Navigation Event Handlers
-  mainWindow.webContents.on('did-navigate', async (event, url) => {  // Added async here
+  mainWindow.webContents.on('did-navigate', async (event, url) => {
     console.log('Navigation occurred:', url);
     const isGoogleUrl = isGoogleAuthPage(url);
     
@@ -406,7 +466,7 @@ async function createWindow() {
     if (!isErrorPage(url)) {
         store.set('lastVisitedUrl', url);
     }
-});
+  });
 
   mainWindow.webContents.on('did-navigate-in-page', (event, url) => {
     console.log('In-page navigation occurred:', url);
