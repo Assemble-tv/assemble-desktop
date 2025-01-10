@@ -7,6 +7,18 @@ const fs = require('fs');
 const Store = require('electron-store');
 const { exec } = require('child_process');
 const { clipboard, MenuItem } = require('electron');
+const config = require('./config.js');
+const admin = require('firebase-admin');
+
+const DEV_URL = 'http://assemble-local.com:3001';
+const PROD_URL = 'https://app.assemble.tv';
+
+const API_URL = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:3000/api' 
+  : 'https://app.assemble.tv/api';
+
+  console.log('[Debug] API URL:', API_URL);
+  console.log('Current NODE_ENV:', process.env.NODE_ENV);
 
 // Force immediate logging to verify it's working
 log.transports.file.level = 'debug';
@@ -34,9 +46,21 @@ process.on('unhandledRejection', (error) => {
   log.error('Unhandled Rejection:', error);
 });
 
-dotenv.config();
-
 let mainWindow = null;
+
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(config.firebase)
+    });
+    log.info('Firebase Admin initialized successfully');
+  } catch (error) {
+    log.error('Firebase Admin initialization error:', error);
+  }
+}
+
+console.log('Firebase Admin initialized with project:', admin.app().options.projectId);
 
 // Initialize store
 const store = new Store({
@@ -44,6 +68,8 @@ const store = new Store({
     notificationsEnabled: false
   }
 });
+
+store.set('authToken', null);
 
 function isGoogleAuthPage(url) {
   console.log('Checking URL:', url);  // Debug log
@@ -187,23 +213,86 @@ function injectNavigationButton(win, shouldShow = false) {
   }
 }
 
+function injectNotificationListener(win) {
+  win.webContents.executeJavaScript(`
+    let lastCount = 0;
+    let currentUserId = null;
+    
+    fetch('/api/me')
+      .then(response => response.json())
+      .then(data => {
+        currentUserId = data?.user?.id;
+        console.log('[Debug] User:', currentUserId);
+      });
+
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      const clone = response.clone();
+      
+      try {
+        if (args[0].includes('/notifications')) {
+          const data = await clone.json();
+          if (data.count > lastCount) {
+            console.log('[Debug] New notifications detected:', {
+              previous: lastCount,
+              current: data.count,
+              latest: data.notifications[0]
+            });
+            lastCount = data.count;
+          }
+        }
+      } catch (error) {
+        console.error('[Debug] Error:', error);
+      }
+      return response;
+    };
+  `);
+}
+
 function injectUI(win) {
   try {
-      // Inject update banner
-      const bannerHTML = fs.readFileSync(path.join(__dirname, 'updateBanner.html'), 'utf8');
-      win.webContents.executeJavaScript(`
-          const updateDiv = document.createElement('div');
-          updateDiv.innerHTML = ${JSON.stringify(bannerHTML)};
-          document.body.appendChild(updateDiv);
-          console.log('Update banner injected');
-      `);
-      const bannerJS = fs.readFileSync(path.join(__dirname, 'updateBanner.js'), 'utf8');
-      win.webContents.executeJavaScript(bannerJS);
+    const bannerHTML = fs.readFileSync(path.join(__dirname, 'updateBanner.html'), 'utf8');
+    win.webContents.executeJavaScript(`
+        const updateDiv = document.createElement('div');
+        updateDiv.innerHTML = ${JSON.stringify(bannerHTML)};
+        document.body.appendChild(updateDiv);
+        console.log('Update banner injected');
+    `);
+    const bannerJS = fs.readFileSync(path.join(__dirname, 'updateBanner.js'), 'utf8');
+    win.webContents.executeJavaScript(`
+      function checkAuthToken() {
+        const token = localStorage.getItem('token');
+        console.log('Checking token:', token);
+        if (token && window.electronAPI) {
+          window.electronAPI.setAuthToken(token);
+        }
+      }
+      // Check immediately and after page loads
+      checkAuthToken();
+      document.addEventListener('DOMContentLoaded', checkAuthToken);
+    `);
 
-      // Initial navigation button injection - hidden by default
-      injectNavigationButton(win, false);
+    injectNavigationButton(win, false);
   } catch (error) {
-      console.error('Error injecting UI elements:', error);
+    console.error('Error injecting UI elements:', error);
+  }
+}
+
+function injectAuthDetection(win) {
+  try {
+    win.webContents.executeJavaScript(`
+      const token = localStorage.getItem('token') || document.cookie.match(/token=([^;]+)/)?.[1];
+      if (token && window.electronAPI) {
+        window.electronAPI.setAuthToken(token);
+        window.electronAPI.registerFCM(token)
+          .then(result => console.log('FCM Registration:', result))
+          .catch(err => console.error('FCM Registration Error:', err));
+        console.log('Auth token stored and FCM registered');
+      }
+    `);
+  } catch (error) {
+    console.error('Error injecting auth detection:', error);
   }
 }
 
@@ -276,7 +365,7 @@ async function forceNotificationRegistration() {
 // Create notification
 async function createNotification(notificationData) {
   try {
-    const { creatorName, message, url, icon, info, target, color, date, dateFormat } = notificationData;
+    const { creatorName, message, url, icon, info, target, date } = notificationData;
 
     // Step 1: Check app's internal notification setting only
     const notificationsEnabled = store.get('notificationsEnabled');
@@ -332,16 +421,12 @@ async function createNotification(notificationData) {
 async function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
-
-  // Set default window size to 80% of the screen size
+ 
   const defaultWidth = Math.floor(width * 0.8);
   const defaultHeight = Math.floor(height * 0.8);
-
-  // Calculate default position (centered)
   const defaultX = Math.floor((width - defaultWidth) / 2);
   const defaultY = Math.floor((height - defaultHeight) / 2);
-
-  // Load the previous state with fallback to new defaults
+ 
   let { bounds } = store.get('windowState', { 
     bounds: { 
       width: defaultWidth, 
@@ -350,8 +435,7 @@ async function createWindow() {
       y: defaultY
     }
   });
-
-  // Create the window
+ 
   mainWindow = new BrowserWindow({
     ...bounds,
     minWidth: 800,
@@ -364,18 +448,15 @@ async function createWindow() {
       spellcheck: true
     }
   });
-
-  // Ensure the window is within the screen bounds
+ 
   const { x, y } = ensureWindowWithinBounds(bounds);
   if (x !== bounds.x || y !== bounds.y) {
     mainWindow.setPosition(x, y);
   }
-
-  // Set up context menu
+ 
   mainWindow.webContents.on('context-menu', (event, params) => {
     const menuTemplate = [];
   
-    // Add spelling suggestions at the top if available
     if (params.dictionarySuggestions?.length > 0 && params.isEditable) {
       params.dictionarySuggestions.forEach(suggestion => {
         menuTemplate.push({
@@ -386,7 +467,6 @@ async function createWindow() {
       menuTemplate.push({ type: 'separator' });
     }
   
-    // Add the rest of the menu items
     menuTemplate.push(
       {
         label: 'Back',
@@ -408,7 +488,6 @@ async function createWindow() {
       { role: 'toggleSpellChecker' }
     );
   
-    // Add link-specific items if clicked on a link
     if (params.linkURL) {
       menuTemplate.push({ type: 'separator' });
       menuTemplate.push({
@@ -425,28 +504,24 @@ async function createWindow() {
     menu.popup();
   });
   
-  // Enable spellchecker
   mainWindow.webContents.session.setSpellCheckerLanguages(['en-US']);
-
-  // Add event listener for opening links in default browser
+ 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-
-  // Load last visited URL or default to home page
-  const lastVisitedUrl = store.get('lastVisitedUrl', 'https://app.assemble.tv');
+ 
+  const lastVisitedUrl = process.env.NODE_ENV === 'development' 
+    ? DEV_URL
+    : store.get('lastVisitedUrl', PROD_URL);
   mainWindow.loadURL(lastVisitedUrl);
-
-  // Clear Google cookies on startup
+ 
   await clearGoogleAuth();
-
-  // Navigation Event Handlers
+ 
   mainWindow.webContents.on('did-navigate', async (event, url) => {
     console.log('Navigation occurred:', url);
     const isGoogleUrl = isGoogleAuthPage(url);
     
-    // Check if this is a logout (navigation to login page)
     if (url.includes('app.assemble.tv/#/login')) {
         console.log('Detected logout, clearing Google cookies...');
         await clearGoogleAuth();
@@ -462,41 +537,62 @@ async function createWindow() {
             if (nav) nav.remove();
         `);
     }
-
+ 
     if (!isErrorPage(url)) {
         store.set('lastVisitedUrl', url);
     }
   });
-
+ 
   mainWindow.webContents.on('did-navigate-in-page', (event, url) => {
     console.log('In-page navigation occurred:', url);
     if (!isErrorPage(url)) {
       store.set('lastVisitedUrl', url);
     }
   });
-
+ 
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.log(`Failed to load: ${validatedURL}`);
     console.log(`Error: ${errorDescription}`);
-    const homeUrl = 'https://app.assemble.tv';
-    mainWindow.loadURL(homeUrl);
-    store.set('lastVisitedUrl', homeUrl);
+    
+    // Only redirect to home if not already trying to load home
+    const homeUrl = process.env.NODE_ENV === 'development' 
+      ? 'http://assemble-local.com:3001/#/login'
+      : 'https://app.assemble.tv/#/login';
+      
+    if (validatedURL !== homeUrl) {
+      console.log('Redirecting to:', homeUrl);
+      mainWindow.loadURL(homeUrl);
+      store.set('lastVisitedUrl', homeUrl);
+    }
   });
-
+  
   mainWindow.webContents.on('did-finish-load', () => {
     const currentUrl = mainWindow.webContents.getURL();
     console.log('Finished loading:', currentUrl);
-    if (!isErrorPage(currentUrl)) {
-      store.set('lastVisitedUrl', currentUrl);
-      console.log('Saved URL after successful load:', currentUrl);
-    }
+    
+    // Check if page actually loaded successfully
+    mainWindow.webContents.executeJavaScript(`
+      document.body.innerHTML.length > 0;
+    `).then(hasContent => {
+      if (hasContent && !isErrorPage(currentUrl)) {
+        store.set('lastVisitedUrl', currentUrl);
+        console.log('Saved URL after successful load:', currentUrl);
+      } else {
+        console.log('Page loaded but appears empty, not saving URL');
+        const homeUrl = process.env.NODE_ENV === 'development' 
+          ? 'http://assemble-local.com:3001/#/login'
+          : 'https://app.assemble.tv/#/login';
+        mainWindow.loadURL(homeUrl);
+      }
+    }).catch(error => {
+      console.error('Error checking page content:', error);
+    });
   });
-
-  // Window Event Handlers
+ 
   mainWindow.on('page-title-updated', (event) => {
     event.preventDefault();
   });
-
+ 
   mainWindow.on('close', () => {
     if (!mainWindow.isMinimized() && !mainWindow.isMaximized()) {
       store.set('windowState', {
@@ -504,12 +600,14 @@ async function createWindow() {
       });
     }
   });
-
+ 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-
+ 
   injectUI(mainWindow);
+  injectAuthDetection(mainWindow);
+  
   return mainWindow;
 }
 
@@ -624,6 +722,21 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+// Auth token for Firebase
+function injectAuthDetection(win) {
+  try {
+    win.webContents.executeJavaScript(`
+      const token = localStorage.getItem('token') || document.cookie.match(/token=([^;]+)/)?.[1];
+      if (token) {
+        console.log('Found token:', token);
+        window.electronAPI.setAuthToken(token);
+      }
+    `);
+  } catch (error) {
+    console.error('Error injecting auth detection:', error);
+  }
+}
+
 // Configure logging
 log.transports.file.level = 'debug';
 log.transports.console.level = 'debug';
@@ -676,6 +789,35 @@ ipcMain.on('nav-back', () => {
   }
 });
 
+// Register FCM tokens for Firebase notifications
+ipcMain.handle('register-fcm', async (event) => {
+  try {
+    const authToken = store.get('authToken');
+    log.info('Attempting FCM registration with token:', authToken ? 'exists' : 'missing');
+    
+    if (!authToken) {
+      throw new Error('No auth token found');
+    }
+
+    const deviceId = app.getPath('userData');
+    const response = await fetch(`${API_URL}/notifications/device-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ deviceId })
+    });
+
+    const data = await response.json();
+    log.info('FCM registration response:', data);
+    return { success: true, data };
+  } catch (error) {
+    log.error('FCM registration error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.on('update-last-visited-url', (event, url) => {
   console.log('Updating last visited URL:', url);
   store.set('lastVisitedUrl', url);
@@ -702,6 +844,12 @@ app.on('activate', () => {
   }
 });
 
+ipcMain.handle('set-auth-token', (event, token) => {
+  console.log('Setting auth token:', token);
+  store.set('authToken', token);
+  return true;
+});
+
 ipcMain.handle('get-notification-permission', async () => {
   return await checkNotificationPermission();
 });
@@ -710,8 +858,9 @@ ipcMain.handle('request-notification-permission', async () => {
   return await requestNotificationPermission();
 });
 
-ipcMain.handle('show-notification', async (event, { type, data }) => {
-  return await createNotification(type, data);
+ipcMain.handle('show-notification', async (event, notificationData) => {
+  console.log('Received notification data:', notificationData); // Add this log
+  return await createNotification(notificationData);
 });
 
 ipcMain.handle('get-notifications-enabled', () => {
@@ -810,6 +959,26 @@ function getActionText(type) {
 
 ipcMain.handle('force-notification-registration', async () => {
   return await forceNotificationRegistration();
+});
+
+ipcMain.handle('unregister-fcm-token', async (event, deviceId) => {
+  try {
+    const authToken = store.get('authToken');
+    
+    await fetch('https://assemblebeta.herokuapp.com/api/fcm/unregister', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ deviceId })
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error unregistering FCM token:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.on('debug-log', (event, message) => {
