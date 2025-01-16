@@ -14,11 +14,46 @@ const DEV_URL = 'http://assemble-local.com:3001';
 const PROD_URL = 'https://app.assemble.tv';
 
 const API_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:3000/api' 
+  ? 'http://assemble-local.com:3001/api'
   : 'https://app.assemble.tv/api';
 
   console.log('[Debug] API URL:', API_URL);
   console.log('Current NODE_ENV:', process.env.NODE_ENV);
+
+const NotificationQueue = {
+queue: [],
+isProcessing: false,
+delay: 250, // Delay between notifications in ms
+
+add(notificationData) {
+  this.queue.push(notificationData);
+  if (!this.isProcessing) {
+    this.processQueue();
+  }
+},
+
+async processQueue() {
+  if (this.queue.length === 0) {
+    this.isProcessing = false;
+    return;
+  }
+
+  this.isProcessing = true;
+  const notificationData = this.queue.shift();
+
+  try {
+    const result = await createNotification(notificationData);
+    console.log('Notification processed:', result);
+  } catch (error) {
+    console.error('Error processing notification:', error);
+  }
+
+  // Wait before processing next notification
+  setTimeout(() => {
+    this.processQueue();
+  }, this.delay);
+}
+};
 
 // Force immediate logging to verify it's working
 log.transports.file.level = 'debug';
@@ -68,8 +103,6 @@ const store = new Store({
     notificationsEnabled: false
   }
 });
-
-store.set('authToken', null);
 
 function isGoogleAuthPage(url) {
   console.log('Checking URL:', url);  // Debug log
@@ -259,13 +292,20 @@ function injectUI(win) {
         document.body.appendChild(updateDiv);
         console.log('Update banner injected');
     `);
-    const bannerJS = fs.readFileSync(path.join(__dirname, 'updateBanner.js'), 'utf8');
+    
+    // Single auth token check
     win.webContents.executeJavaScript(`
       function checkAuthToken() {
         const token = localStorage.getItem('token');
-        console.log('Checking token:', token);
+        console.log('Found token:', token ? 'exists' : 'missing');
         if (token && window.electronAPI) {
-          window.electronAPI.setAuthToken(token);
+          window.electronAPI.setAuthToken(token)
+            .then(() => {
+              console.log('Auth token stored successfully');
+              return window.electronAPI.registerFCM(token);
+            })
+            .then(result => console.log('FCM Registration:', result))
+            .catch(err => console.error('Token/FCM Error:', err));
         }
       }
       // Check immediately and after page loads
@@ -276,23 +316,6 @@ function injectUI(win) {
     injectNavigationButton(win, false);
   } catch (error) {
     console.error('Error injecting UI elements:', error);
-  }
-}
-
-function injectAuthDetection(win) {
-  try {
-    win.webContents.executeJavaScript(`
-      const token = localStorage.getItem('token') || document.cookie.match(/token=([^;]+)/)?.[1];
-      if (token && window.electronAPI) {
-        window.electronAPI.setAuthToken(token);
-        window.electronAPI.registerFCM(token)
-          .then(result => console.log('FCM Registration:', result))
-          .catch(err => console.error('FCM Registration Error:', err));
-        console.log('Auth token stored and FCM registered');
-      }
-    `);
-  } catch (error) {
-    console.error('Error injecting auth detection:', error);
   }
 }
 
@@ -334,8 +357,7 @@ function playNotificationSound() {
 
 // Check notification permission on macOS
 async function checkNotificationPermission() {
-  // If Notification is supported, assume we can use it
-  // since the system will handle permission checks
+  console.log('Checking notification permission');
   return Notification.isSupported();
 }
 
@@ -344,38 +366,17 @@ async function requestNotificationPermission() {
   return Notification.isSupported();
 }
 
-async function forceNotificationRegistration() {
-  if (process.platform === 'darwin') {
-    try {
-      // Create and show a test notification
-      const testNotification = new Notification({
-        title: 'Registration Test',
-        body: 'Registering with notification system'
-      });
-      testNotification.show();
-      return true;
-    } catch (error) {
-      console.error('Error forcing notification registration:', error);
-      return false;
-    }
-  }
-  return true;
-}
-
 // Create notification
 async function createNotification(notificationData) {
   try {
-    const { creatorName, message, url, icon, info, target, date } = notificationData;
-
-    // Step 1: Check app's internal notification setting only
+    // Check if app-level notifications are enabled
     const notificationsEnabled = store.get('notificationsEnabled');
-    console.log('App notifications enabled:', notificationsEnabled);
     if (!notificationsEnabled) {
-      console.log('Notifications are disabled in app settings');
-      return { success: false, reason: 'app_disabled' };
+      return { success: false, reason: 'disabled' };
     }
 
     // Create notification options
+    const { creatorName, message, url, icon, info, target, date } = notificationData;
     const options = {
       title: `${creatorName} ${message}`,
       body: `${target}${info ? ` - ${info}` : ''}`,
@@ -383,35 +384,57 @@ async function createNotification(notificationData) {
       timeoutType: 'default'
     };
 
-    // Add icon if provided
     if (icon) {
       options.icon = icon;
     }
 
-    // Create and show notification with sound
-    const notification = new Notification(options);
-    playNotificationSound();
-    notification.show();
-
-    // Setup click handler
-    notification.on('click', () => {
+    return new Promise((resolve, reject) => {
       try {
-        if (mainWindow) {
-          if (mainWindow.isMinimized()) {
-            mainWindow.restore();
+        // Create notification
+        const notification = new Notification(options);
+        
+        // Play sound
+        playNotificationSound();
+        
+        // Show notification
+        notification.show();
+
+        // Setup click handler
+        notification.on('click', () => {
+          try {
+            if (mainWindow) {
+              if (mainWindow.isMinimized()) {
+                mainWindow.restore();
+              }
+              mainWindow.focus();
+              if (url) {
+                mainWindow.loadURL(url);
+              }
+            }
+          } catch (error) {
+            console.error('Error handling notification click:', error);
           }
-          mainWindow.focus();
-          if (url) {
-            mainWindow.loadURL(url);
-          }
-        }
+        });
+
+        // Handle close event to know when notification is finished
+        notification.on('close', () => {
+          resolve({ success: true, ...notificationData });
+        });
+
+        // Handle show event for logging
+        notification.on('show', () => {
+          console.log('Notification shown:', notificationData.title);
+        });
+
+        // Fallback resolve in case close event doesn't fire
+        setTimeout(() => {
+          resolve({ success: true, ...notificationData });
+        }, 5000);
+
       } catch (error) {
-        console.error('Error handling notification click:', error);
+        reject(error);
       }
     });
-
-    // Return success
-    return { success: true, ...notificationData };
   } catch (error) {
     console.error('Error creating notification:', error);
     return { success: false, reason: 'error', error: error.message, stack: error.stack };
@@ -606,7 +629,6 @@ async function createWindow() {
   });
  
   injectUI(mainWindow);
-  injectAuthDetection(mainWindow);
   
   return mainWindow;
 }
@@ -722,21 +744,6 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-// Auth token for Firebase
-function injectAuthDetection(win) {
-  try {
-    win.webContents.executeJavaScript(`
-      const token = localStorage.getItem('token') || document.cookie.match(/token=([^;]+)/)?.[1];
-      if (token) {
-        console.log('Found token:', token);
-        window.electronAPI.setAuthToken(token);
-      }
-    `);
-  } catch (error) {
-    console.error('Error injecting auth detection:', error);
-  }
-}
-
 // Configure logging
 log.transports.file.level = 'debug';
 log.transports.console.level = 'debug';
@@ -768,10 +775,10 @@ app.whenReady().then(async () => {
     log.info('Last visited URL from store:', lastVisitedUrl);
 
     if (process.platform === 'darwin') {
-      forceNotificationRegistration().then(result => {
-        log.info('Initial notification registration result:', result);
+      checkNotificationPermission().then(result => {
+        log.info('Initial notification permission check:', result);
       }).catch(error => {
-        log.error('Error during notification registration:', error);
+        log.error('Error checking notification permission:', error);
       });
     }
   } catch (error) {
@@ -789,34 +796,7 @@ ipcMain.on('nav-back', () => {
   }
 });
 
-// Register FCM tokens for Firebase notifications
-ipcMain.handle('register-fcm', async (event) => {
-  try {
-    const authToken = store.get('authToken');
-    log.info('Attempting FCM registration with token:', authToken ? 'exists' : 'missing');
-    
-    if (!authToken) {
-      throw new Error('No auth token found');
-    }
 
-    const deviceId = app.getPath('userData');
-    const response = await fetch(`${API_URL}/notifications/device-token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`
-      },
-      body: JSON.stringify({ deviceId })
-    });
-
-    const data = await response.json();
-    log.info('FCM registration response:', data);
-    return { success: true, data };
-  } catch (error) {
-    log.error('FCM registration error:', error);
-    return { success: false, error: error.message };
-  }
-});
 
 ipcMain.on('update-last-visited-url', (event, url) => {
   console.log('Updating last visited URL:', url);
@@ -844,12 +824,6 @@ app.on('activate', () => {
   }
 });
 
-ipcMain.handle('set-auth-token', (event, token) => {
-  console.log('Setting auth token:', token);
-  store.set('authToken', token);
-  return true;
-});
-
 ipcMain.handle('get-notification-permission', async () => {
   return await checkNotificationPermission();
 });
@@ -859,8 +833,9 @@ ipcMain.handle('request-notification-permission', async () => {
 });
 
 ipcMain.handle('show-notification', async (event, notificationData) => {
-  console.log('Received notification data:', notificationData); // Add this log
-  return await createNotification(notificationData);
+  console.log('Queueing notification:', notificationData);
+  NotificationQueue.add(notificationData);
+  return { success: true, queued: true };
 });
 
 ipcMain.handle('get-notifications-enabled', () => {
@@ -956,10 +931,6 @@ function getActionText(type) {
       return '';
   }
 }
-
-ipcMain.handle('force-notification-registration', async () => {
-  return await forceNotificationRegistration();
-});
 
 ipcMain.handle('unregister-fcm-token', async (event, deviceId) => {
   try {
