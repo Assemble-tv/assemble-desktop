@@ -10,15 +10,22 @@ const { clipboard, MenuItem } = require('electron');
 const config = require('./config.js');
 const admin = require('firebase-admin');
 
-const DEV_URL = 'http://assemble-local.com:3001';
+const LOCAL_URL = 'http://assemble-local.com:3001';
+const DEV_URL = 'https://assemble-ci.herokuapp.com';
 const PROD_URL = 'https://app.assemble.tv';
 
-const API_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://assemble-local.com:3001/api'
-  : 'https://app.assemble.tv/api';
+const getBaseUrl = () => {
+  switch (process.env.NODE_ENV) {
+    case 'local':
+      return LOCAL_URL;
+    case 'development':
+      return DEV_URL;
+    default:
+      return PROD_URL;
+  }
+};
 
-  console.log('[Debug] API URL:', API_URL);
-  console.log('Current NODE_ENV:', process.env.NODE_ENV);
+const API_URL = `${getBaseUrl()}/api`;
 
 const NotificationQueue = {
 queue: [],

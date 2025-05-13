@@ -1,21 +1,24 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.82",
+  "version": "1.0.84",
   "description": "Assemble Desktop App",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder build --mac",
-    "deploy": "electron-builder build --mac --publish always"
+    "build:dev": "cross-env NODE_ENV=development electron-builder build --mac",
+    "build:local": "cross-env NODE_ENV=local electron-builder build --mac",
+    "deploy": "electron-builder build --mac --publish always",
+    "deploy:dev": "cross-env NODE_ENV=development electron-builder build --mac --publish always --config electron-builder.ci.json"
   },
   "build": {
     "appId": "tv.assemble",
     "productName": "Assemble",
     "publish": {
       "provider": "github",
-      "owner": "natewatkin21",
-      "repo": "assemble-desktop",
+      "owner": "Assemble-tv",
+      "repo": "assemble-app-releases",
       "releaseType": "release"
     },
     "generateUpdatesFilesForAllChannels": true,
@@ -35,10 +38,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": {
-        "teamId": "YY8VUW28TA"
-      }
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "afterSign": "scripts/notarize.cjs",
     "dmg": {
@@ -73,11 +73,12 @@
     "electron-push-receiver": "^2.1.3",
     "electron-store": "^8.2.0",
     "electron-updater": "^6.1.4",
-    "firebase": "^11.0.2",
+    "firebase": "^11.3.1",
     "firebase-admin": "^13.0.0"
   },
   "devDependencies": {
     "@electron/notarize": "^2.1.0",
+    "cross-env": "^7.0.3",
     "electron": "25.9.0",
     "electron-builder": "^25.1.7"
   }

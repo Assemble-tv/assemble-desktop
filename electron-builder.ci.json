@@ -1,0 +1,9 @@
+{
+    "publish": {
+        "provider": "github",
+        "owner": "Assemble-tv",
+        "repo": "desktop-app-release-ci",
+        "releaseType": "release"
+    }
+}
+  
