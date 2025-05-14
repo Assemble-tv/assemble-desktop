@@ -579,38 +579,71 @@ async function createWindow() {
     return { action: 'deny' };
   });
  
-  // Check if this is a development build by checking the app version
-  // This is a more reliable way to determine if we're running a development build
+  // Check the build type by examining app version and name
   const appVersion = app.getVersion();
+  const appName = app.getName();
+  
+  // Detect environment based on multiple indicators
+  const isLocalBuild = appVersion.includes('local') || 
+                      process.env.NODE_ENV === 'local' || 
+                      appName.includes('Local');
+                      
   const isDevelopmentBuild = appVersion.includes('dev') || 
                             process.env.NODE_ENV === 'development' || 
-                            app.getName().includes('development');
+                            appName.includes('CI');
   
-  // Force development mode if needed
-  if (isDevelopmentBuild && process.env.NODE_ENV !== 'development') {
+  // Force environment mode if needed
+  if (isLocalBuild && process.env.NODE_ENV !== 'local') {
+    process.env.NODE_ENV = 'local';
+    log.info('Forced NODE_ENV to local based on app version/name');
+  } else if (isDevelopmentBuild && process.env.NODE_ENV !== 'development') {
     process.env.NODE_ENV = 'development';
-    log.info('Forced NODE_ENV to development based on app version');
+    log.info('Forced NODE_ENV to development based on app version/name');
   }
   
-  // Always start with the main app URL based on environment
-  const baseUrl = isDevelopmentBuild ? DEV_URL : PROD_URL;
+  // Determine which URL to use based on environment
+  let baseUrl;
+  if (isLocalBuild) {
+    baseUrl = LOCAL_URL;
+  } else if (isDevelopmentBuild) {
+    baseUrl = DEV_URL;
+  } else {
+    baseUrl = PROD_URL;
+  }
+  
   log.info(`Using base URL: ${baseUrl}`);
   log.info(`Current NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
-  log.info(`App version: ${appVersion}, isDevelopmentBuild: ${isDevelopmentBuild}`);
-  log.info(`DEV_URL: ${DEV_URL}, PROD_URL: ${PROD_URL}`);
+  log.info(`App version: ${appVersion}, appName: ${appName}`);
+  log.info(`isLocalBuild: ${isLocalBuild}, isDevelopmentBuild: ${isDevelopmentBuild}`);
+  log.info(`LOCAL_URL: ${LOCAL_URL}, DEV_URL: ${DEV_URL}, PROD_URL: ${PROD_URL}`);
   
   // Load the main URL directly instead of last visited
   mainWindow.loadURL(baseUrl);
   log.info(`Loading main URL: ${baseUrl}`);
   
-  // We'll restore the last visited URL after the window is shown and ready
+  // We'll restore the last visited URL after the window is shown and ready, but only if it's for the same environment
   mainWindow.webContents.once('did-finish-load', () => {
     // Now try to load the last visited URL if it exists and differs from the base URL
     try {
       const lastVisitedUrl = store.get('lastVisitedUrl');
-      if (lastVisitedUrl && lastVisitedUrl !== baseUrl && lastVisitedUrl.startsWith('http')) {
-        log.info(`Restoring last visited URL: ${lastVisitedUrl}`);
+      
+      // Only restore URLs that match the current environment
+      const shouldRestoreUrl = lastVisitedUrl && 
+                              lastVisitedUrl.startsWith('http') && 
+                              lastVisitedUrl !== baseUrl &&
+                              (
+                                (isLocalBuild && lastVisitedUrl.includes(LOCAL_URL)) ||
+                                (isDevelopmentBuild && lastVisitedUrl.includes(DEV_URL)) ||
+                                (!isLocalBuild && !isDevelopmentBuild && lastVisitedUrl.includes(PROD_URL))
+                              );
+      
+      if (shouldRestoreUrl) {
+        log.info(`Restoring last visited URL for current environment: ${lastVisitedUrl}`);
         mainWindow.loadURL(lastVisitedUrl);
+      } else if (lastVisitedUrl) {
+        log.info(`Not restoring last visited URL ${lastVisitedUrl} because it doesn't match current environment`);
+        // Store a new environment-specific last visited URL
+        store.set('lastVisitedUrl', baseUrl);
       }
     } catch (error) {
       log.error('Error restoring last visited URL:', error);
@@ -653,16 +686,25 @@ async function createWindow() {
   });
  
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    console.log(`Failed to load: ${validatedURL}`);
-    console.log(`Error: ${errorDescription}`);
+    log.info(`Failed to load: ${validatedURL}`);
+    log.info(`Error: ${errorDescription}`);
+    
+    // Determine the appropriate home URL based on the detected environment
+    let homeUrl;
+    if (isLocalBuild) {
+      homeUrl = `${LOCAL_URL}/#/login`;
+      log.info('Using local home URL due to isLocalBuild');
+    } else if (isDevelopmentBuild) {
+      homeUrl = `${DEV_URL}/#/login`;
+      log.info('Using development home URL due to isDevelopmentBuild');
+    } else {
+      homeUrl = `${PROD_URL}/#/login`;
+      log.info('Using production home URL');
+    }
     
     // Only redirect to home if not already trying to load home
-    const homeUrl = process.env.NODE_ENV === 'development' 
-      ? `${DEV_URL}/#/login`
-      : `${PROD_URL}/#/login`;
-      
     if (validatedURL !== homeUrl) {
-      console.log('Redirecting to:', homeUrl);
+      log.info(`Redirecting to: ${homeUrl}`);
       mainWindow.loadURL(homeUrl);
       store.set('lastVisitedUrl', homeUrl);
     }
@@ -688,9 +730,20 @@ async function createWindow() {
         log.info('Saved URL after successful load:', currentUrl);
       } else {
         log.warn('Page loaded but appears empty, not saving URL');
-        const homeUrl = process.env.NODE_ENV === 'development' 
-          ? 'http://assemble-local.com:3001/#/login'
-          : 'https://app.assemble.tv/#/login';
+        
+        // Determine the appropriate home URL based on the detected environment
+        let homeUrl;
+        if (isLocalBuild) {
+          homeUrl = `${LOCAL_URL}/#/login`;
+          log.info('Empty page - using local home URL due to isLocalBuild');
+        } else if (isDevelopmentBuild) {
+          homeUrl = `${DEV_URL}/#/login`;
+          log.info('Empty page - using development home URL due to isDevelopmentBuild');
+        } else {
+          homeUrl = `${PROD_URL}/#/login`;
+          log.info('Empty page - using production home URL');
+        }
+        
         log.info('Redirecting to home URL:', homeUrl);
         mainWindow.loadURL(homeUrl);
       }

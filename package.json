@@ -1,7 +1,7 @@
 {
   "name": "assemble-desktop-app",
   "productName": "Assemble",
-  "version": "1.0.87",
+  "version": "1.0.87-dev",
   "description": "Assemble Desktop App",
   "main": "main.cjs",
   "scripts": {
@@ -10,7 +10,8 @@
     "build:dev": "cross-env NODE_ENV=development electron-builder build --mac",
     "build:local": "cross-env NODE_ENV=local electron-builder build --mac",
     "deploy": "electron-builder build --mac --publish always",
-    "deploy:dev": "cross-env NODE_ENV=development electron-builder build --mac --publish always --config electron-builder.ci.json"
+    "deploy:dev": "cross-env NODE_ENV=development electron-builder build --mac --publish always --config electron-builder.ci.json",
+    "deploy:local": "cross-env NODE_ENV=local electron-builder build --mac --publish always --config electron-builder.local.json"
   },
   "build": {
     "appId": "tv.assemble",
