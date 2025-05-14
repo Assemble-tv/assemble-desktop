@@ -91,18 +91,32 @@ process.on('unhandledRejection', (error) => {
 let mainWindow = null;
 
 // Initialize Firebase Admin
+let firebaseInitialized = false;
 if (!admin.apps.length) {
   try {
-    admin.initializeApp({
-      credential: admin.credential.cert(config.firebase)
-    });
-    log.info('Firebase Admin initialized successfully');
+    // Check if firebase config is valid before initializing
+    if (config.firebase && typeof config.firebase === 'object' && config.firebase.project_id) {
+      admin.initializeApp({
+        credential: admin.credential.cert(config.firebase)
+      });
+      firebaseInitialized = true;
+      log.info('Firebase Admin initialized successfully with project:', config.firebase.project_id);
+    } else {
+      log.warn('Firebase config is missing or invalid. Skipping Firebase initialization.');
+    }
   } catch (error) {
     log.error('Firebase Admin initialization error:', error);
   }
 }
 
-console.log('Firebase Admin initialized with project:', admin.app().options.projectId);
+// Only log project ID if Firebase was successfully initialized
+if (firebaseInitialized) {
+  try {
+    console.log('Firebase Admin initialized with project:', admin.app().options.projectId);
+  } catch (error) {
+    log.error('Error accessing Firebase project ID:', error);
+  }
+}
 
 // Initialize store
 const store = new Store({
@@ -449,28 +463,50 @@ async function createNotification(notificationData) {
 }
 
 async function createWindow() {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
- 
-  const defaultWidth = Math.floor(width * 0.8);
-  const defaultHeight = Math.floor(height * 0.8);
-  const defaultX = Math.floor((width - defaultWidth) / 2);
-  const defaultY = Math.floor((height - defaultHeight) / 2);
- 
-  let { bounds } = store.get('windowState', { 
-    bounds: { 
-      width: defaultWidth, 
-      height: defaultHeight,
-      x: defaultX,
-      y: defaultY
-    }
-  });
+  log.info('Creating window...');
+  // Define bounds with default values
+  let bounds = {
+    width: 1024,
+    height: 768,
+    x: 0,
+    y: 0
+  };
+  
+  try {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.workAreaSize;
+    log.info(`Primary display size: ${width}x${height}`);
+   
+    const defaultWidth = Math.floor(width * 0.8);
+    const defaultHeight = Math.floor(height * 0.8);
+    const defaultX = Math.floor((width - defaultWidth) / 2);
+    const defaultY = Math.floor((height - defaultHeight) / 2);
+    log.info(`Default window bounds: ${defaultWidth}x${defaultHeight} at ${defaultX},${defaultY}`);
+   
+    // Get stored bounds or use defaults
+    const windowState = store.get('windowState', { 
+      bounds: { 
+        width: defaultWidth, 
+        height: defaultHeight,
+        x: defaultX,
+        y: defaultY
+      }
+    });
+    
+    bounds = windowState.bounds;
+    log.info(`Stored window bounds: ${bounds.width}x${bounds.height} at ${bounds.x},${bounds.y}`);
+  } catch (error) {
+    log.error('Error getting display info:', error);
+    // We'll use the default bounds already defined
+    log.info('Using fallback window bounds');
+  }
  
   mainWindow = new BrowserWindow({
     ...bounds,
     minWidth: 800,
     minHeight: 600,
     title: '',
+    show: false, // Start hidden and show when ready
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -478,6 +514,8 @@ async function createWindow() {
       spellcheck: true
     }
   });
+  
+  log.info('BrowserWindow created');
  
   const { x, y } = ensureWindowWithinBounds(bounds);
   if (x !== bounds.x || y !== bounds.y) {
@@ -541,10 +579,44 @@ async function createWindow() {
     return { action: 'deny' };
   });
  
-  const lastVisitedUrl = process.env.NODE_ENV === 'development' 
-    ? DEV_URL
-    : store.get('lastVisitedUrl', PROD_URL);
-  mainWindow.loadURL(lastVisitedUrl);
+  // Check if this is a development build by checking the app version
+  // This is a more reliable way to determine if we're running a development build
+  const appVersion = app.getVersion();
+  const isDevelopmentBuild = appVersion.includes('dev') || 
+                            process.env.NODE_ENV === 'development' || 
+                            app.getName().includes('development');
+  
+  // Force development mode if needed
+  if (isDevelopmentBuild && process.env.NODE_ENV !== 'development') {
+    process.env.NODE_ENV = 'development';
+    log.info('Forced NODE_ENV to development based on app version');
+  }
+  
+  // Always start with the main app URL based on environment
+  const baseUrl = isDevelopmentBuild ? DEV_URL : PROD_URL;
+  log.info(`Using base URL: ${baseUrl}`);
+  log.info(`Current NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
+  log.info(`App version: ${appVersion}, isDevelopmentBuild: ${isDevelopmentBuild}`);
+  log.info(`DEV_URL: ${DEV_URL}, PROD_URL: ${PROD_URL}`);
+  
+  // Load the main URL directly instead of last visited
+  mainWindow.loadURL(baseUrl);
+  log.info(`Loading main URL: ${baseUrl}`);
+  
+  // We'll restore the last visited URL after the window is shown and ready
+  mainWindow.webContents.once('did-finish-load', () => {
+    // Now try to load the last visited URL if it exists and differs from the base URL
+    try {
+      const lastVisitedUrl = store.get('lastVisitedUrl');
+      if (lastVisitedUrl && lastVisitedUrl !== baseUrl && lastVisitedUrl.startsWith('http')) {
+        log.info(`Restoring last visited URL: ${lastVisitedUrl}`);
+        mainWindow.loadURL(lastVisitedUrl);
+      }
+    } catch (error) {
+      log.error('Error restoring last visited URL:', error);
+      // Continue with the base URL that's already loaded
+    }
+  });
  
   await clearGoogleAuth();
  
@@ -586,8 +658,8 @@ async function createWindow() {
     
     // Only redirect to home if not already trying to load home
     const homeUrl = process.env.NODE_ENV === 'development' 
-      ? 'http://assemble-local.com:3001/#/login'
-      : 'https://app.assemble.tv/#/login';
+      ? `${DEV_URL}/#/login`
+      : `${PROD_URL}/#/login`;
       
     if (validatedURL !== homeUrl) {
       console.log('Redirecting to:', homeUrl);
@@ -598,7 +670,14 @@ async function createWindow() {
   
   mainWindow.webContents.on('did-finish-load', () => {
     const currentUrl = mainWindow.webContents.getURL();
-    console.log('Finished loading:', currentUrl);
+    log.info('Finished loading:', currentUrl);
+    
+    // Show window once content has loaded
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+      log.info('Window shown after content loaded');
+    }
     
     // Check if page actually loaded successfully
     mainWindow.webContents.executeJavaScript(`
@@ -606,16 +685,23 @@ async function createWindow() {
     `).then(hasContent => {
       if (hasContent && !isErrorPage(currentUrl)) {
         store.set('lastVisitedUrl', currentUrl);
-        console.log('Saved URL after successful load:', currentUrl);
+        log.info('Saved URL after successful load:', currentUrl);
       } else {
-        console.log('Page loaded but appears empty, not saving URL');
+        log.warn('Page loaded but appears empty, not saving URL');
         const homeUrl = process.env.NODE_ENV === 'development' 
           ? 'http://assemble-local.com:3001/#/login'
           : 'https://app.assemble.tv/#/login';
+        log.info('Redirecting to home URL:', homeUrl);
         mainWindow.loadURL(homeUrl);
       }
     }).catch(error => {
-      console.error('Error checking page content:', error);
+      log.error('Error checking page content:', error);
+      // Show window anyway in case of error
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+        mainWindow.focus();
+        log.info('Window shown after error');
+      }
     });
   });
  
@@ -767,10 +853,39 @@ process.on('unhandledRejection', (error) => {
 app.whenReady().then(async () => {
   try {
     log.info('App starting...');
+    log.info('Environment:', process.env.NODE_ENV || 'production');
+    
+    // Force production mode if not explicitly set
+    if (!process.env.NODE_ENV) {
+      process.env.NODE_ENV = 'production';
+      log.info('Forced environment to production mode');
+    }
     
     // Now screen module will be available
     await createWindow();
     log.info('Window created successfully');
+    
+    // Force window to show
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+      log.info('Window show and focus called');
+      
+      // Ensure window is visible
+      setTimeout(() => {
+        if (mainWindow) {
+          log.info('Window visible check timeout fired');
+          mainWindow.show();
+          mainWindow.focus();
+          if (!mainWindow.isVisible()) {
+            log.info('Window not visible, forcing show again');
+            mainWindow.show();
+          }
+        }
+      }, 1000);
+    } else {
+      log.error('mainWindow is null after createWindow');
+    }
     
     setupAutoUpdater(mainWindow);
     log.info('Auto updater setup complete');

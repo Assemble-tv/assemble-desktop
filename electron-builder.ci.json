@@ -1,9 +1,57 @@
 {
+    "appId": "tv.assemble",
+    "productName": "Assemble CI",
     "publish": {
         "provider": "github",
         "owner": "Assemble-tv",
         "repo": "desktop-app-release-ci",
         "releaseType": "release"
+    },
+    "buildVersion": "development",
+    "extraMetadata": {
+        "NODE_ENV": "development",
+        "version": "0.1.0-dev"
+    },
+    "generateUpdatesFilesForAllChannels": true,
+    "extraResources": [
+        {
+            "from": "assets/",
+            "to": "assets"
+        }
+    ],
+    "mac": {
+        "category": "public.app-category.productivity",
+        "icon": "assets/icons/icon.icns",
+        "target": [
+            "dmg",
+            "zip"
+        ],
+        "hardenedRuntime": true,
+        "gatekeeperAssess": false,
+        "entitlements": "build/entitlements.mac.plist",
+        "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "afterSign": "scripts/notarize.cjs",
+    "dmg": {
+        "icon": "assets/icons/dmg_installer.icns",
+        "background": "assets/dmg_background.svg",
+        "iconSize": 80,
+        "contents": [
+            {
+                "x": 410,
+                "y": 190,
+                "type": "link",
+                "path": "/Applications"
+            },
+            {
+                "x": 130,
+                "y": 190,
+                "type": "file"
+            }
+        ],
+        "window": {
+            "width": 540,
+            "height": 380
+        }
     }
 }
-  
