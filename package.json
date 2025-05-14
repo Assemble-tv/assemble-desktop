@@ -6,6 +6,10 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
+    "dev": "cross-env NODE_ENV=development electron .",
+    "dev:local": "cross-env NODE_ENV=local electron .",
+    "dev:watch": "nodemon --watch main.cjs --watch preload.cjs --exec 'npm run dev'",
+    "dev:local:watch": "nodemon --watch main.cjs --watch preload.cjs --exec 'npm run dev:local'",
     "build": "electron-builder build --mac",
     "build:dev": "cross-env NODE_ENV=development electron-builder build --mac",
     "build:local": "cross-env NODE_ENV=local electron-builder build --mac",
@@ -81,6 +85,7 @@
     "@electron/notarize": "^2.1.0",
     "cross-env": "^7.0.3",
     "electron": "25.9.0",
-    "electron-builder": "^25.1.7"
+    "electron-builder": "^25.1.7",
+    "nodemon": "^3.1.10"
   }
 }

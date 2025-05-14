@@ -1107,11 +1107,137 @@ function getActionText(type) {
   }
 }
 
+ipcMain.handle('set-auth-token', async (event, token) => {
+  try {
+    store.set('authToken', token);
+    log.info('Auth token saved successfully');
+    return { success: true };
+  } catch (error) {
+    log.error('Error saving auth token:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('register-fcm-token', async (event, deviceId) => {
+  try {
+    const authToken = store.get('authToken');
+    if (!authToken) {
+      log.warn('Cannot register FCM token: No auth token available');
+      return { success: false, error: 'No auth token available' };
+    }
+
+    if (!firebaseInitialized) {
+      log.warn('Cannot register FCM token: Firebase not initialized');
+      return { success: false, error: 'Firebase not initialized' };
+    }
+
+    // Use the API URL based on the base URL
+    const baseUrl = getBaseUrl();
+    const apiBaseUrl = `${baseUrl}/api/fcm/register`;
+
+    log.info(`Registering FCM token with API at: ${apiBaseUrl}`);
+    
+    const response = await fetch(apiBaseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ 
+        deviceId,
+        platform: 'desktop',
+        projectId: config.firebase.project_id
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API responded with status ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    log.info('FCM token registered successfully');
+    return { success: true, data };
+  } catch (error) {
+    log.error('Error registering FCM token:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('register-fcm', async (event, authToken) => {
+  try {
+    if (authToken) {
+      store.set('authToken', authToken);
+    } else {
+      authToken = store.get('authToken');
+      if (!authToken) {
+        return { success: false, error: 'No auth token available' };
+      }
+    }
+
+    // Generate a unique device ID if not already stored
+    let deviceId = store.get('deviceId');
+    if (!deviceId) {
+      deviceId = `electron_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+      store.set('deviceId', deviceId);
+    }
+
+    // Register the device with the FCM service
+    const result = await ipcMain.handle('register-fcm-token', event, deviceId);
+    return result;
+  } catch (error) {
+    log.error('Error in register-fcm handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('test-fcm', async () => {
+  try {
+    if (!firebaseInitialized) {
+      return { success: false, error: 'Firebase not initialized' };
+    }
+
+    // Create a test notification using the Firebase Admin SDK
+    const testMessage = {
+      notification: {
+        title: 'Test Notification',
+        body: 'This is a test notification from Firebase Cloud Messaging',
+      },
+      token: 'test-token' // This won't actually work, just for testing the flow
+    };
+
+    log.info('Sending test FCM message:', testMessage);
+    log.info('Firebase project ID:', config.firebase.project_id);
+
+    // Create a desktop notification as a fallback
+    createNotification({
+      title: testMessage.notification.title,
+      body: testMessage.notification.body,
+      type: 'test'
+    });
+
+    return { 
+      success: true, 
+      message: 'Test notification sent successfully',
+      projectId: config.firebase.project_id
+    };
+  } catch (error) {
+    log.error('Error sending test FCM message:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('unregister-fcm-token', async (event, deviceId) => {
   try {
     const authToken = store.get('authToken');
     
-    await fetch('https://assemblebeta.herokuapp.com/api/fcm/unregister', {
+    // Use the API URL based on the base URL
+    const baseUrl = getBaseUrl();
+    const apiBaseUrl = `${baseUrl}/api/fcm/unregister`;
+
+    log.info(`Unregistering FCM token with API at: ${apiBaseUrl}`);
+    
+    await fetch(apiBaseUrl, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -1122,7 +1248,7 @@ ipcMain.handle('unregister-fcm-token', async (event, deviceId) => {
     
     return { success: true };
   } catch (error) {
-    console.error('Error unregistering FCM token:', error);
+    log.error('Error unregistering FCM token:', error);
     return { success: false, error: error.message };
   }
 });
